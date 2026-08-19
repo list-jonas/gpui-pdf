@@ -14,6 +14,7 @@
 ## Status
 
 - **Priority**: P1
+- **Implementation**: Phase 0 code and local gates complete; runtime, cross-platform, and cargo-deny verification pending
 - **Effort**: XL; multi-month product, not one feature
 - **Risk**: HIGH; PDF compatibility and editing semantics are difficult
 - **Depends on**: none

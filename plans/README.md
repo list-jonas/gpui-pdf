@@ -10,7 +10,7 @@ The requested `plan/xxx.md` location is represented by the repository-standard
 
 | Plan | Title | Priority | Effort | Depends on | Status |
 |------|-------|----------|--------|------------|--------|
-| 001 | Build local-first Acrobat alternative with Rust + GPUI | P1 | XL | — | TODO |
+| 001 | Build local-first Acrobat alternative with Rust + GPUI | P1 | XL | — | IN PROGRESS |
 
 Status values: TODO, IN PROGRESS, DONE, BLOCKED, REJECTED.
 
