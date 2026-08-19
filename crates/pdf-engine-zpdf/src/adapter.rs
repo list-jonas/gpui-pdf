@@ -13,6 +13,10 @@ impl PdfEngine for ZpdfEngine {
             .union(EngineCapabilities::RENDER)
             .union(EngineCapabilities::EXTRACT_TEXT)
             .union(EngineCapabilities::ENCRYPTED_DOCUMENTS)
+            .union(EngineCapabilities::FORMS)
+            .union(EngineCapabilities::TEXT_STAMPS)
+            .union(EngineCapabilities::REDACTION)
+            .union(EngineCapabilities::SAVE)
     }
 
     fn open(&self, request: OpenRequest) -> Result<Box<dyn PdfDocument>, EngineError> {

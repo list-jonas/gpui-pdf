@@ -14,6 +14,10 @@ The requested `plan/xxx.md` location is represented by the repository-standard
 
 Status values: TODO, IN PROGRESS, DONE, BLOCKED, REJECTED.
 
+Current slice: macOS editor bundle, native open/save dialogs, Finder PDF open events,
+page navigation, AcroForm editing, text overlays, beta content redaction, fresh
+redaction rewrite, and atomic Save As are implemented. Broader alpha criteria remain open.
+
 ## Dependency notes
 
 - Plan 001 is greenfield. Its Phase 0 spike must finish before committing to a

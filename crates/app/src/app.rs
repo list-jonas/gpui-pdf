@@ -21,7 +21,7 @@ pub fn run() {
     let application = Application::new();
     let finder_sender = request_sender.clone();
     application.on_open_urls(move |urls| {
-        for path in urls.into_iter().filter_map(file_url_to_path) {
+        for path in urls.iter().filter_map(|value| file_url_to_path(value)) {
             let _ = finder_sender.try_send(EditorRequest::Open(path));
         }
     });
@@ -44,6 +44,6 @@ pub fn run() {
     });
 }
 
-fn file_url_to_path(value: String) -> Option<PathBuf> {
-    url::Url::parse(&value).ok()?.to_file_path().ok()
+fn file_url_to_path(value: &str) -> Option<PathBuf> {
+    url::Url::parse(value).ok()?.to_file_path().ok()
 }

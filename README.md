@@ -3,7 +3,7 @@
 Local-first PDF application built with Rust, GPUI, gpui-component, and a replaceable PDF engine.
 
 The editor opens and navigates PDFs, fills existing form fields, adds text
-overlays, queues permanent redactions, and atomically saves an edited copy.
+overlays, queues content redactions, and atomically saves an edited copy.
 
 ## Run
 

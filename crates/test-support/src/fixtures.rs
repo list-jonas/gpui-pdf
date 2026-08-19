@@ -44,11 +44,18 @@ pub fn form_pdf() -> Vec<u8> {
     build_pdf(&[
         b"<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>".to_vec(),
         b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 180] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 180] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R /Annots [6 0 R 8 0 R 11 0 R] >>".to_vec(),
         stream("", content),
-        b"<< /Fields [6 0 R] /DA (/F1 12 Tf 0 g) /DR << /Font << /F1 7 0 R >> >> >>".to_vec(),
+        b"<< /Fields [6 0 R 8 0 R 11 0 R] /DA (/F1 12 Tf 0 g) /DR << /Font << /F1 7 0 R >> >> >>".to_vec(),
         b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (customer.name) /V (Original) /Rect [50 120 200 150] /P 3 0 R /DA (/F1 12 Tf 0 g) >>".to_vec(),
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+        b"<< /Type /Annot /Subtype /Widget /FT /Btn /T (accept) /V /Off /AS /Off /Rect [20 140 32 152] /P 3 0 R /AP << /N << /Off 9 0 R /Yes 10 0 R >> >> >>".to_vec(),
+        stream("/Type /XObject /Subtype /Form /BBox [0 0 12 12]", b""),
+        stream(
+            "/Type /XObject /Subtype /Form /BBox [0 0 12 12]",
+            b"0 0 12 12 re S 2 2 m 10 10 l S",
+        ),
+        b"<< /Type /Annot /Subtype /Widget /FT /Ch /T (country) /V (ES) /Opt [[(ES) (Spain)] [(AT) (Austria)]] /Rect [50 100 200 118] /P 3 0 R /DA (/F1 12 Tf 0 g) >>".to_vec(),
     ])
 }
 

@@ -169,7 +169,7 @@ mod tests {
 
         assert!(matches!(
             receiver.recv_blocking().unwrap(),
-            EditorUpdate::Loaded { forms, .. } if forms.len() == 1
+            EditorUpdate::Loaded { forms, .. } if forms.len() == 3
         ));
     }
 }

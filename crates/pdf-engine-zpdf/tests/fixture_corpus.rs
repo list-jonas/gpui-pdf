@@ -95,18 +95,34 @@ fn malformed_fixture_fails_without_panicking() {
 fn form_fields_fill_and_round_trip() {
     let mut document = ZpdfEngine.open(OpenRequest::new(form_pdf())).unwrap();
     let fields = document.form_fields().unwrap();
+    assert_eq!(fields.len(), 3);
     assert_eq!(fields[0].name, "customer.name");
     assert_eq!(fields[0].value, "Original");
+    assert_eq!(fields[1].value, "Off");
+    assert_eq!(fields[2].value, "ES");
 
     let output = document
-        .export(&[EditCommand::FillForm {
-            name: "customer.name".to_owned(),
-            value: "Ada Lovelace".to_owned(),
-        }])
+        .export(&[
+            EditCommand::FillForm {
+                name: "customer.name".to_owned(),
+                value: "Ada Lovelace".to_owned(),
+            },
+            EditCommand::FillForm {
+                name: "accept".to_owned(),
+                value: "true".to_owned(),
+            },
+            EditCommand::FillForm {
+                name: "country".to_owned(),
+                value: "AT".to_owned(),
+            },
+        ])
         .unwrap();
     let reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+    let fields = reopened.form_fields().unwrap();
 
-    assert_eq!(reopened.form_fields().unwrap()[0].value, "Ada Lovelace");
+    assert_eq!(fields[0].value, "Ada Lovelace");
+    assert_eq!(fields[1].value, "Yes");
+    assert_eq!(fields[2].value, "AT");
 }
 
 #[test]

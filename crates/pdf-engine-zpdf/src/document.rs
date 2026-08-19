@@ -97,7 +97,11 @@ fn convert_field(field: &zpdf::FormField) -> FormField {
     FormField {
         name: field.name.clone(),
         kind,
-        value: field.display_value().unwrap_or_default(),
+        value: match &field.value {
+            Some(zpdf::FieldValue::Text(value) | zpdf::FieldValue::Name(value)) => value.clone(),
+            Some(zpdf::FieldValue::List(values)) => values.join("\n"),
+            None => String::new(),
+        },
         options: field.options.clone(),
         read_only: field.flags & FF_READ_ONLY != 0,
     }
