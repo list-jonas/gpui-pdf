@@ -5,7 +5,6 @@ use gpui::{
 use gpui_component::Disableable;
 use gpui_component::button::Button;
 use gpui_component::input::Input;
-use gpui_component::scroll::ScrollableElement;
 use pdf_engine::{EditCommand, FormFieldKind};
 
 use crate::EditorView;
@@ -44,10 +43,7 @@ impl EditorView {
         for page_index in 0..self.pages.len() {
             scroll = scroll.child(self.render_page(page_index, cx));
         }
-        scroll
-            .vertical_scrollbar(&self.scroll)
-            .horizontal_scrollbar(&self.scroll)
-            .into_any_element()
+        scroll.into_any_element()
     }
 
     fn render_page(&self, page_index: usize, cx: &mut Context<Self>) -> gpui::Div {
