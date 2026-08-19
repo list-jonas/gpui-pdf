@@ -1,11 +1,14 @@
 use document_core::EngineCapabilities;
 
-use crate::{DocumentMetadata, EngineError, OpenRequest, PageMetadata, PdfEditor, PdfRenderer};
+use crate::{
+    DocumentMetadata, EngineError, OpenRequest, PageMetadata, PdfEditor, PdfRenderer, TextFragment,
+};
 
 pub trait PdfReader {
     fn metadata(&self) -> DocumentMetadata;
     fn page_metadata(&self, page_index: usize) -> Result<PageMetadata, EngineError>;
     fn extract_text(&mut self, page_index: usize) -> Result<String, EngineError>;
+    fn text_fragments(&mut self, page_index: usize) -> Result<Vec<TextFragment>, EngineError>;
 }
 
 pub trait PdfDocument: PdfReader + PdfRenderer + PdfEditor + Send {}

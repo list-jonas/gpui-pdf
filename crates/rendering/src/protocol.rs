@@ -1,6 +1,6 @@
 use pdf_engine::{
     DocumentMetadata, EditCommand, EngineError, FormField, PageMetadata, RenderRequest,
-    RenderedPage,
+    RenderedPage, TextFragment,
 };
 
 use crate::Generation;
@@ -11,6 +11,7 @@ pub enum Operation {
     PageMetadata,
     Render,
     ExtractText,
+    TextFragments,
     Forms,
     Export,
 }
@@ -25,6 +26,9 @@ pub enum DocumentCommand {
         generation: Generation,
     },
     ExtractText {
+        page_index: usize,
+    },
+    TextFragments {
         page_index: usize,
     },
     FormFields,
@@ -46,6 +50,10 @@ pub enum DocumentEvent {
     TextReady {
         page_index: usize,
         text: String,
+    },
+    TextFragments {
+        page_index: usize,
+        fragments: Vec<TextFragment>,
     },
     FormFields(Vec<FormField>),
     Exported(Vec<u8>),

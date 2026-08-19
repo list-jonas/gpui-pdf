@@ -100,6 +100,11 @@ fn form_fields_fill_and_round_trip() {
     assert_eq!(fields[0].value, "Original");
     assert_eq!(fields[1].value, "Off");
     assert_eq!(fields[2].value, "ES");
+    assert_eq!(fields[0].widgets[0].page_index, 0);
+    assert_eq!(
+        fields[0].widgets[0].rect,
+        PdfRect::new(50.0, 120.0, 200.0, 150.0).unwrap()
+    );
 
     let output = document
         .export(&[
@@ -123,6 +128,48 @@ fn form_fields_fill_and_round_trip() {
     assert_eq!(fields[0].value, "Ada Lovelace");
     assert_eq!(fields[1].value, "Yes");
     assert_eq!(fields[2].value, "AT");
+}
+
+#[test]
+fn text_fragments_have_selectable_page_geometry() {
+    let mut document = ZpdfEngine.open(OpenRequest::new(text_pdf())).unwrap();
+    let fragments = document.text_fragments(0).unwrap();
+
+    assert_eq!(fragments.len(), 1);
+    assert_eq!(fragments[0].text, "Phase zero");
+    assert!(fragments[0].rect.width() > 50.0);
+    assert!(fragments[0].rect.height() > 10.0);
+}
+
+#[test]
+fn highlight_annotation_round_trips() {
+    let mut document = ZpdfEngine.open(OpenRequest::new(text_pdf())).unwrap();
+    let output = document
+        .export(&[EditCommand::Highlight {
+            page_index: 0,
+            rects: vec![PdfRect::new(18.0, 45.0, 115.0, 66.0).unwrap()],
+            color: (1.0, 0.86, 0.2),
+        }])
+        .unwrap();
+    let native = NativeDocument::open(output.clone()).unwrap();
+    let page = native.page(0).unwrap();
+
+    assert!(
+        native
+            .page_annotations(&page)
+            .iter()
+            .any(|annotation| annotation.subtype == "Highlight")
+    );
+    let mut reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+    assert!(
+        reopened
+            .render_page(RenderRequest {
+                page_index: 0,
+                scale: 1.0,
+            })
+            .unwrap()
+            .is_valid()
+    );
 }
 
 #[test]

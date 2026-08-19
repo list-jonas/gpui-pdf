@@ -13,9 +13,20 @@ pub struct TextStamp {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum EditCommand {
-    FillForm { name: String, value: String },
+    FillForm {
+        name: String,
+        value: String,
+    },
     AddText(TextStamp),
-    Redact { page_index: usize, rect: PdfRect },
+    Redact {
+        page_index: usize,
+        rect: PdfRect,
+    },
+    Highlight {
+        page_index: usize,
+        rects: Vec<PdfRect>,
+        color: (f64, f64, f64),
+    },
 }
 
 pub trait PdfEditor {

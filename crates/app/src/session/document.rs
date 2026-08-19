@@ -6,7 +6,7 @@ use async_channel::{Receiver, Sender};
 use pdf_engine::{DocumentMetadata, OpenRequest, PageMetadata, RenderRequest, RenderedPage};
 use pdf_engine_zpdf::ZpdfEngine;
 use rendering::{DocumentCommand, DocumentEvent, DocumentWorker};
-use ui::{EditorRequest, EditorUpdate};
+use ui::{EditorRequest, EditorUpdate, LoadedDocument};
 
 pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
     std::thread::spawn(move || {
@@ -59,18 +59,23 @@ fn load(path: &Path, page_index: usize, updates: &Sender<EditorUpdate>) -> Resul
         .map_err(|error| error.to_string())?;
     let forms = expect_forms(receive(&worker)?)?;
     worker
+        .send(DocumentCommand::TextFragments { page_index })
+        .map_err(|error| error.to_string())?;
+    let fragments = expect_fragments(receive(&worker)?)?;
+    worker
         .shutdown()
         .map_err(|_| "document worker panicked during shutdown".to_owned())?;
 
     updates
-        .send_blocking(EditorUpdate::Loaded {
+        .send_blocking(EditorUpdate::Loaded(Box::new(LoadedDocument {
             path: path.to_path_buf(),
             document,
             page,
             rendered,
             text,
+            fragments,
             forms,
-        })
+        })))
         .map_err(|error| error.to_string())
 }
 
@@ -146,6 +151,14 @@ fn expect_forms(event: DocumentEvent) -> Result<Vec<pdf_engine::FormField>, Stri
     }
 }
 
+fn expect_fragments(event: DocumentEvent) -> Result<Vec<pdf_engine::TextFragment>, String> {
+    match event {
+        DocumentEvent::TextFragments { fragments, .. } => Ok(fragments),
+        DocumentEvent::Failed { error, .. } => Err(error.to_string()),
+        event => Err(format!("unexpected text fragments event: {event:?}")),
+    }
+}
+
 fn expect_exported(event: DocumentEvent) -> Result<Vec<u8>, String> {
     match event {
         DocumentEvent::Exported(bytes) => Ok(bytes),
@@ -169,7 +182,7 @@ mod tests {
 
         assert!(matches!(
             receiver.recv_blocking().unwrap(),
-            EditorUpdate::Loaded { forms, .. } if forms.len() == 3
+            EditorUpdate::Loaded(loaded) if loaded.forms.len() == 3
         ));
     }
 }

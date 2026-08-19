@@ -141,6 +141,12 @@ fn run(
                     return;
                 }
             }
+            DocumentCommand::TextFragments { page_index } => {
+                let event = text_fragments_event(document.as_mut(), page_index);
+                if events.send(event).is_err() {
+                    return;
+                }
+            }
             DocumentCommand::FormFields => {
                 let event = match document.form_fields() {
                     Ok(fields) => DocumentEvent::FormFields(fields),
@@ -169,6 +175,19 @@ fn run(
         }
     }
     let _ = events.send(DocumentEvent::Closed);
+}
+
+fn text_fragments_event(document: &mut dyn PdfDocument, page_index: usize) -> DocumentEvent {
+    match document.text_fragments(page_index) {
+        Ok(fragments) => DocumentEvent::TextFragments {
+            page_index,
+            fragments,
+        },
+        Err(error) => DocumentEvent::Failed {
+            operation: Operation::TextFragments,
+            error,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -216,6 +235,13 @@ mod tests {
 
         fn extract_text(&mut self, _: usize) -> Result<String, EngineError> {
             Ok("text".into())
+        }
+
+        fn text_fragments(
+            &mut self,
+            _: usize,
+        ) -> Result<Vec<pdf_engine::TextFragment>, EngineError> {
+            Ok(Vec::new())
         }
     }
 

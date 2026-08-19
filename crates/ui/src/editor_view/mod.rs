@@ -80,14 +80,16 @@ impl EditorView {
 
     fn apply(&mut self, update: EditorUpdate, window: &mut Window, cx: &mut Context<Self>) {
         match update {
-            EditorUpdate::Loaded {
-                path,
-                document,
-                page,
-                rendered,
-                text,
-                forms,
-            } => {
+            EditorUpdate::Loaded(loaded) => {
+                let crate::LoadedDocument {
+                    path,
+                    document,
+                    page,
+                    rendered,
+                    text,
+                    fragments: _,
+                    forms,
+                } = *loaded;
                 self.path = Some(path.clone());
                 self.page_index = page.index;
                 self.page_count = document.page_count;

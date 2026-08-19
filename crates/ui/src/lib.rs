@@ -7,4 +7,4 @@ mod protocol;
 
 pub use actions::{NextPage, OpenDocument, PreviousPage, SaveDocument};
 pub use editor_view::EditorView;
-pub use protocol::{EditorRequest, EditorUpdate};
+pub use protocol::{EditorRequest, EditorUpdate, LoadedDocument};

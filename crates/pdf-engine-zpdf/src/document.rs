@@ -1,11 +1,13 @@
 use pdf_engine::{
     DocumentMetadata, EditCommand, EngineError, EngineErrorKind, FormField, FormFieldKind,
-    PageMetadata, PdfEditor, PdfReader, PdfRenderer, RenderRequest, RenderedPage,
+    FormWidget, PageMetadata, PdfEditor, PdfReader, PdfRenderer, RenderRequest, RenderedPage,
+    TextFragment,
 };
 use std::io::Cursor;
 use zpdf::{ContentInterpreter, ImageCache, RenderBackend, TextSpan};
 use zpdf_writer::{
-    FormFiller, IncrementalWriter, RedactOptions, RewriteOptions, StampItem, rewrite_pdf,
+    AnnotationSpec, FormFiller, IncrementalWriter, MarkupKind, RedactOptions, RewriteOptions,
+    StampItem, rewrite_pdf,
 };
 
 use crate::convert::{map_engine_error, map_render_error, page_geometry};
@@ -51,7 +53,12 @@ impl PdfEditor for ZpdfDocument {
         Ok(self
             .inner
             .acro_form()
-            .map(|form| form.fields.iter().map(convert_field).collect())
+            .map(|form| {
+                form.fields
+                    .iter()
+                    .map(|field| self.convert_field(field))
+                    .collect()
+            })
             .unwrap_or_default())
     }
 
@@ -86,24 +93,51 @@ impl PdfEditor for ZpdfDocument {
     }
 }
 
-fn convert_field(field: &zpdf::FormField) -> FormField {
-    let kind = match field.kind {
-        zpdf::FieldKind::Text => FormFieldKind::Text,
-        zpdf::FieldKind::Button => FormFieldKind::Button,
-        zpdf::FieldKind::Choice => FormFieldKind::Choice,
-        zpdf::FieldKind::Signature => FormFieldKind::Signature,
-        zpdf::FieldKind::Unknown => FormFieldKind::Unknown,
-    };
-    FormField {
-        name: field.name.clone(),
-        kind,
-        value: match &field.value {
-            Some(zpdf::FieldValue::Text(value) | zpdf::FieldValue::Name(value)) => value.clone(),
-            Some(zpdf::FieldValue::List(values)) => values.join("\n"),
-            None => String::new(),
-        },
-        options: field.options.clone(),
-        read_only: field.flags & FF_READ_ONLY != 0,
+impl ZpdfDocument {
+    fn convert_field(&self, field: &zpdf::FormField) -> FormField {
+        let kind = match field.kind {
+            zpdf::FieldKind::Text => FormFieldKind::Text,
+            zpdf::FieldKind::Button => FormFieldKind::Button,
+            zpdf::FieldKind::Choice => FormFieldKind::Choice,
+            zpdf::FieldKind::Signature => FormFieldKind::Signature,
+            zpdf::FieldKind::Unknown => FormFieldKind::Unknown,
+        };
+        FormField {
+            name: field.name.clone(),
+            kind,
+            value: match &field.value {
+                Some(zpdf::FieldValue::Text(value) | zpdf::FieldValue::Name(value)) => {
+                    value.clone()
+                }
+                Some(zpdf::FieldValue::List(values)) => values.join("\n"),
+                None => String::new(),
+            },
+            options: field.options.clone(),
+            read_only: field.flags & FF_READ_ONLY != 0,
+            widgets: self.field_widgets(field),
+        }
+    }
+
+    fn field_widgets(&self, field: &zpdf::FormField) -> Vec<FormWidget> {
+        let mut widgets = Vec::new();
+        for page_index in 0..self.inner.page_count() {
+            let Ok(page) = self.inner.page(page_index) else {
+                continue;
+            };
+            for (id, annotation) in page.annots.iter().zip(self.inner.page_annotations(&page)) {
+                if field.widgets.contains(id)
+                    && let Ok(rect) = document_core::PdfRect::new(
+                        annotation.rect.x0,
+                        annotation.rect.y0,
+                        annotation.rect.x1,
+                        annotation.rect.y1,
+                    )
+                {
+                    widgets.push(FormWidget { page_index, rect });
+                }
+            }
+        }
+        widgets
     }
 }
 
@@ -157,6 +191,23 @@ fn apply_edit(writer: &mut IncrementalWriter, edit: &EditCommand) -> Result<(), 
                 &RedactOptions::default(),
             )
             .map_err(map_write_error),
+        EditCommand::Highlight {
+            page_index,
+            rects,
+            color,
+        } => {
+            let rects: Vec<_> = rects
+                .iter()
+                .map(|rect| zpdf::Rect::new(rect.x_min, rect.y_min, rect.x_max, rect.y_max))
+                .collect();
+            writer
+                .add_annotation(
+                    *page_index,
+                    &AnnotationSpec::markup_from_rects(MarkupKind::Highlight, &rects, *color, None),
+                )
+                .map(|_| ())
+                .map_err(map_write_error)
+        }
     }
 }
 
@@ -191,6 +242,31 @@ impl PdfReader for ZpdfDocument {
     }
 
     fn extract_text(&mut self, page_index: usize) -> Result<String, EngineError> {
+        Ok(zpdf::spans_to_text(self.extract_spans(page_index)?, 2.0))
+    }
+
+    fn text_fragments(&mut self, page_index: usize) -> Result<Vec<TextFragment>, EngineError> {
+        Ok(self
+            .extract_spans(page_index)?
+            .into_iter()
+            .filter(|span| !span.text.trim().is_empty())
+            .filter_map(|span| {
+                let x0 = span.x.min(span.x + span.advance);
+                let x1 = span.x.max(span.x + span.advance);
+                let size = f64::from(span.size).abs().max(1.0);
+                document_core::PdfRect::new(x0, span.y - size * 0.25, x1, span.y + size * 0.8)
+                    .ok()
+                    .map(|rect| TextFragment {
+                        text: span.text,
+                        rect,
+                    })
+            })
+            .collect())
+    }
+}
+
+impl ZpdfDocument {
+    fn extract_spans(&mut self, page_index: usize) -> Result<Vec<TextSpan>, EngineError> {
         let page = self.page(page_index)?;
         let mut fonts = self.inner.load_page_fonts(&page);
         let mut images = ImageCache::new();
@@ -200,13 +276,12 @@ impl PdfReader for ZpdfDocument {
             .map_err(|error| map_engine_error(&error))?;
         let mut spans: Vec<TextSpan> = Vec::new();
         ContentInterpreter::new(page.effective_box())
-            .with_page_rotation(page.rotate)
             .with_fonts(&mut fonts)
             .with_document(self.inner.file(), &page.resources)
             .with_images(&mut images)
             .with_text_sink(&mut spans)
             .interpret(&content);
-        Ok(zpdf::spans_to_text(spans, 2.0))
+        Ok(spans)
     }
 }
 
@@ -225,11 +300,13 @@ impl PdfRenderer for ZpdfDocument {
             .inner
             .page_content_bytes(&page)
             .map_err(|error| map_engine_error(&error))?;
+        let annotations = self.inner.page_annotations(&page);
         let display_list = ContentInterpreter::new(page.effective_box())
             .with_page_rotation(page.rotate)
             .with_fonts(&mut fonts)
             .with_document(self.inner.file(), &page.resources)
             .with_images(&mut images)
+            .with_annotations(&annotations)
             .interpret(&content);
         let rendered = zpdf::cpu::CpuRenderer::new()
             .with_limits(self.inner.file().limits())
