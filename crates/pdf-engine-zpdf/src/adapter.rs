@@ -21,6 +21,8 @@ impl PdfEngine for ZpdfEngine {
             .as_ref()
             .map_or(b"".as_slice(), pdf_engine::Password::expose);
         let had_password = request.password.is_some();
+        let source = request.bytes.to_vec();
+        let retained_password = password.to_vec();
         let document = zpdf::PdfDocument::open_with_password(request.bytes, password)
             .map_err(|error| map_open_error(&error, had_password))?;
         if document.is_encrypted() && document.file().decryptor().is_none() {
@@ -31,6 +33,10 @@ impl PdfEngine for ZpdfEngine {
             };
             return Err(EngineError::new(kind, "PDF password is required"));
         }
-        Ok(Box::new(ZpdfDocument::new(document)))
+        Ok(Box::new(ZpdfDocument::new(
+            document,
+            source,
+            retained_password,
+        )))
     }
 }

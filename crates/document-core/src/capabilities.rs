@@ -7,6 +7,10 @@ impl EngineCapabilities {
     pub const RENDER: Self = Self(1 << 1);
     pub const EXTRACT_TEXT: Self = Self(1 << 2);
     pub const ENCRYPTED_DOCUMENTS: Self = Self(1 << 3);
+    pub const FORMS: Self = Self(1 << 4);
+    pub const TEXT_STAMPS: Self = Self(1 << 5);
+    pub const REDACTION: Self = Self(1 << 6);
+    pub const SAVE: Self = Self(1 << 7);
 
     pub const fn empty() -> Self {
         Self(0)

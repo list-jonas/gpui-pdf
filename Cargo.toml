@@ -4,6 +4,7 @@ members = [
     "crates/document-core",
     "crates/pdf-engine",
     "crates/pdf-engine-zpdf",
+    "crates/persistence",
     "crates/rendering",
     "crates/test-support",
     "crates/ui",
@@ -22,6 +23,7 @@ async-channel = "2"
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
 gpui-component = "=0.5.1"
 image = { version = "0.25", default-features = false }
+tempfile = "3"
 zpdf = { git = "https://github.com/Xero-Team/zpdf", rev = "9537f457b15e22c7c9c21827ec12f254b7644c22", default-features = false, features = ["cpu-render"] }
 zpdf-writer = { git = "https://github.com/Xero-Team/zpdf", rev = "9537f457b15e22c7c9c21827ec12f254b7644c22" }
 

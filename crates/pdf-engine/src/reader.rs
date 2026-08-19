@@ -1,6 +1,6 @@
 use document_core::EngineCapabilities;
 
-use crate::{DocumentMetadata, EngineError, OpenRequest, PageMetadata, PdfRenderer};
+use crate::{DocumentMetadata, EngineError, OpenRequest, PageMetadata, PdfEditor, PdfRenderer};
 
 pub trait PdfReader {
     fn metadata(&self) -> DocumentMetadata;
@@ -8,9 +8,9 @@ pub trait PdfReader {
     fn extract_text(&mut self, page_index: usize) -> Result<String, EngineError>;
 }
 
-pub trait PdfDocument: PdfReader + PdfRenderer + Send {}
+pub trait PdfDocument: PdfReader + PdfRenderer + PdfEditor + Send {}
 
-impl<T> PdfDocument for T where T: PdfReader + PdfRenderer + Send {}
+impl<T> PdfDocument for T where T: PdfReader + PdfRenderer + PdfEditor + Send {}
 
 pub trait PdfEngine: Send + Sync {
     fn capabilities(&self) -> EngineCapabilities;

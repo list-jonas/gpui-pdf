@@ -9,11 +9,10 @@ version.workspace = true
 document-core = { path = "../document-core" }
 pdf-engine = { path = "../pdf-engine" }
 zpdf.workspace = true
+zpdf-writer.workspace = true
 
 [dev-dependencies]
 test-support = { path = "../test-support" }
-zpdf-writer.workspace = true
 
 [lints]
 workspace = true
-
