@@ -1,3 +1,10 @@
-mod probe_view;
+mod actions;
+mod controls;
+mod editor_view;
+mod field_input;
+mod page_image;
+mod protocol;
 
-pub use probe_view::{PagePreview, ProbeUpdate, ProbeView};
+pub use actions::{NextPage, OpenDocument, PreviousPage, SaveDocument};
+pub use editor_view::EditorView;
+pub use protocol::{EditorRequest, EditorUpdate};

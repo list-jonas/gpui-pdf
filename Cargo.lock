@@ -2401,9 +2401,12 @@ dependencies = [
  "gpui-component",
  "pdf-engine",
  "pdf-engine-zpdf",
+ "persistence",
  "rendering",
+ "tempfile",
  "test-support",
  "ui",
+ "url",
 ]
 
 [[package]]
@@ -6503,8 +6506,11 @@ name = "ui"
 version = "0.1.0"
 dependencies = [
  "async-channel 2.5.0",
+ "document-core",
  "gpui",
+ "gpui-component",
  "image",
+ "pdf-engine",
 ]
 
 [[package]]

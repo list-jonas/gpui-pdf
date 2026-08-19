@@ -1,3 +1,3 @@
-mod probe;
+mod document;
 
-pub use probe::start;
+pub use document::start;

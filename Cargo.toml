@@ -24,6 +24,7 @@ gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
 gpui-component = "=0.5.1"
 image = { version = "0.25", default-features = false }
 tempfile = "3"
+url = "2"
 zpdf = { git = "https://github.com/Xero-Team/zpdf", rev = "9537f457b15e22c7c9c21827ec12f254b7644c22", default-features = false, features = ["cpu-render"] }
 zpdf-writer = { git = "https://github.com/Xero-Team/zpdf", rev = "9537f457b15e22c7c9c21827ec12f254b7644c22" }
 

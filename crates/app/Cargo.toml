@@ -12,11 +12,14 @@ gpui.workspace = true
 gpui-component.workspace = true
 pdf-engine = { path = "../pdf-engine" }
 pdf-engine-zpdf = { path = "../pdf-engine-zpdf" }
+persistence = { path = "../persistence" }
 rendering = { path = "../rendering" }
 ui = { path = "../ui" }
+url.workspace = true
 
 [dev-dependencies]
 test-support = { path = "../test-support" }
+tempfile.workspace = true
 
 [lints]
 workspace = true

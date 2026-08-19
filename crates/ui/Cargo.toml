@@ -7,8 +7,11 @@ version.workspace = true
 
 [dependencies]
 async-channel.workspace = true
+document-core = { path = "../document-core" }
 gpui.workspace = true
+gpui-component.workspace = true
 image.workspace = true
+pdf-engine = { path = "../pdf-engine" }
 
 [lints]
 workspace = true
