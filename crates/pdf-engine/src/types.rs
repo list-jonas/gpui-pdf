@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use document_core::PageGeometry;
 
-#[derive(Clone)]
 pub struct Password(Vec<u8>);
 
 impl Password {
@@ -22,7 +21,13 @@ impl Debug for Password {
     }
 }
 
-#[derive(Clone, Debug)]
+impl Drop for Password {
+    fn drop(&mut self) {
+        self.0.fill(0);
+    }
+}
+
+#[derive(Debug)]
 #[must_use]
 pub struct OpenRequest {
     pub bytes: Arc<[u8]>,
@@ -59,7 +64,7 @@ pub struct PageMetadata {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RenderRequest {
     pub page_index: usize,
-    pub scale: f64,
+    pub scale: f32,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

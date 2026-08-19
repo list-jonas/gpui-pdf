@@ -2,7 +2,9 @@
 members = [
     "crates/document-core",
     "crates/pdf-engine",
+    "crates/pdf-engine-zpdf",
     "crates/rendering",
+    "crates/test-support",
 ]
 resolver = "3"
 
@@ -11,6 +13,10 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.97.1"
 version = "0.1.0"
+
+[workspace.dependencies]
+zpdf = { git = "https://github.com/Xero-Team/zpdf", rev = "9537f457b15e22c7c9c21827ec12f254b7644c22", default-features = false, features = ["cpu-render"] }
+zpdf-writer = { git = "https://github.com/Xero-Team/zpdf", rev = "9537f457b15e22c7c9c21827ec12f254b7644c22" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

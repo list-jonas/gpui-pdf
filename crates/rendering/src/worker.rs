@@ -74,7 +74,6 @@ impl DocumentWorker {
 impl Drop for DocumentWorker {
     fn drop(&mut self) {
         let _ = self.commands.send(DocumentCommand::Shutdown);
-        let _ = self.join();
     }
 }
 

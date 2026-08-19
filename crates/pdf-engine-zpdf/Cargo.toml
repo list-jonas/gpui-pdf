@@ -1,17 +1,19 @@
 [package]
-name = "rendering"
+name = "pdf-engine-zpdf"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
 [dependencies]
+document-core = { path = "../document-core" }
 pdf-engine = { path = "../pdf-engine" }
+zpdf.workspace = true
 
 [dev-dependencies]
-document-core = { path = "../document-core" }
-pdf-engine-zpdf = { path = "../pdf-engine-zpdf" }
 test-support = { path = "../test-support" }
+zpdf-writer.workspace = true
 
 [lints]
 workspace = true
+

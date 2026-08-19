@@ -80,12 +80,15 @@ pub enum Rotation {
 }
 
 impl Rotation {
-    pub const fn from_degrees(degrees: i32) -> Self {
+    pub fn from_degrees(degrees: i32) -> Result<Self, CoreError> {
         match degrees.rem_euclid(360) {
-            90 => Self::Clockwise90,
-            180 => Self::Clockwise180,
-            270 => Self::Clockwise270,
-            _ => Self::None,
+            0 => Ok(Self::None),
+            90 => Ok(Self::Clockwise90),
+            180 => Ok(Self::Clockwise180),
+            270 => Ok(Self::Clockwise270),
+            _ => Err(CoreError::invalid_geometry(
+                "page rotation must be a multiple of 90 degrees",
+            )),
         }
     }
 
@@ -233,5 +236,10 @@ mod tests {
             assert!((round_trip.x - pdf.x).abs() < f64::EPSILON);
             assert!((round_trip.y - pdf.y).abs() < f64::EPSILON);
         }
+    }
+
+    #[test]
+    fn malformed_rotation_is_rejected() {
+        assert!(Rotation::from_degrees(45).is_err());
     }
 }
