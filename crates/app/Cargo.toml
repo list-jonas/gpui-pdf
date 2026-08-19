@@ -1,0 +1,22 @@
+[package]
+name = "gpui-pdf"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+async-channel.workspace = true
+gpui.workspace = true
+gpui-component.workspace = true
+pdf-engine = { path = "../pdf-engine" }
+pdf-engine-zpdf = { path = "../pdf-engine-zpdf" }
+rendering = { path = "../rendering" }
+ui = { path = "../ui" }
+
+[dev-dependencies]
+test-support = { path = "../test-support" }
+
+[lints]
+workspace = true

@@ -1,0 +1,14 @@
+[package]
+name = "ui"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+async-channel.workspace = true
+gpui.workspace = true
+image.workspace = true
+
+[lints]
+workspace = true
