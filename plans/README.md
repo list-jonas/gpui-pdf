@@ -21,6 +21,8 @@ Status values: TODO, IN PROGRESS, DONE, BLOCKED, REJECTED.
 - Plan 001 uses `gpui-component` for styled shell controls, dock layout, themes,
   dialogs, lists, and tables; PDF rendering remains a custom product-owned
   canvas.
+- Plan 001 requires Hugeicons for product icons and an Acrobat-familiar desktop
+  layout hierarchy without copying Adobe branding or proprietary assets.
 
 ## Findings considered and rejected
 

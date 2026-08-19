@@ -47,6 +47,9 @@ Relevant current projects:
   components, themes, dock layouts, virtualized lists/tables, dialogs, inputs,
   menus, tooltips, and an Apache-2.0 license. Use its components for app chrome;
   keep the PDF page canvas custom.
+- [Hugeicons](https://github.com/hugeicons/hugeicons) is the required icon
+  family. Its free icon set/source is MIT-licensed; Pro packs require a valid
+  Pro license and have separate source-asset redistribution restrictions.
 - [`zpdf`](https://github.com/Xero-Team/zpdf) is the recommended first engine
   candidate. It currently advertises pure-Rust parsing, CPU/GPU rendering,
   text extraction, forms, annotations, page operations, redaction, merging,
@@ -245,7 +248,7 @@ gpui-pdf/
 ├── LICENSE-APACHE
 ├── LICENSE-MIT
 ├── assets/
-│   ├── icons/                    # Lucide/custom SVG names used by Icon
+│   ├── icons/                    # Hugeicons assets and checked-in license note
 │   ├── fonts/                    # only redistributable fonts
 │   └── fixtures/                 # tiny licensed PDFs only
 ├── docs/
@@ -283,6 +286,7 @@ gpui-pdf/
 │   │   └── src/
 │   │       ├── lib.rs
 │   │       ├── theme.rs           # project tokens mapped to ThemeColor
+│   │       ├── icons.rs           # central Hugeicons registry and Icon wrapper
 │   │       ├── shell/
 │   │       │   ├── top_bar.rs
 │   │       │   ├── sidebars.rs
@@ -396,6 +400,28 @@ Use `gpui-component` directly for:
   form fields, and batch-operation files;
 - command palette and keyboard-driven navigation where available;
 - progress, toast, notification, and error presentation.
+
+Icon rule: use Hugeicons for all product UI icons. Do not mix Lucide, Font
+Awesome, SF Symbols, or ad-hoc Unicode symbols for normal controls. Wrap icon
+access behind `ui/src/icons.rs` so feature code uses project names such as
+`AppIcon::Open`, `AppIcon::Comment`, and `AppIcon::RotateClockwise`, rather
+than raw asset paths.
+
+Hugeicons does not provide a native GPUI package in its documented framework
+list. Use Hugeicons static/free SVG assets as the source of truth, then adapt
+them to the `gpui-component` `Icon` element or a small product-owned
+`HugeIcon` element. Do not import a JavaScript runtime to render icons.
+
+Default icon style: Hugeicons Stroke Rounded on a 24×24 grid, with consistent
+stroke width and optical sizing. Use solid/bulk variants only for status
+indicators, selected-state emphasis, or filled document objects. Each icon
+needs a tooltip/accessible label when its meaning is not obvious.
+
+License gate: use the free MIT-licensed set by default and record asset
+provenance in `assets/icons/NOTICE.md`. Pro icons require a valid Hugeicons Pro
+license; do not commit or redistribute Pro source assets in a public repository
+without confirming the license terms. CI must fail if an icon is missing from
+the approved registry.
 
 Do not force the PDF page into a generic `List` or `Table`. `PdfCanvas` needs
 custom layout and texture painting because it must coordinate page geometry,
@@ -613,19 +639,68 @@ Rules:
 - Add fuzz targets for parser/open, page render, annotation import, and save.
 - Run dependency/license/advisory checks before each distributable release.
 
-### UI architecture
+### Visual direction: Acrobat-familiar desktop workspace
 
-Primary window:
+Layout should feel immediately familiar to Acrobat users while remaining an
+original implementation. Match Acrobat's information hierarchy and workflow,
+not its branding or proprietary artwork.
 
 ```text
 AppWindow
-  TopBar: file actions, undo/redo, search, zoom, active tool
-  MainSplit
-    LeftSidebar: thumbnails | outline | annotations | forms
-    Center: virtualized PdfCanvas
-    RightSidebar: properties, comments, signature/redaction review
-  StatusBar: page, zoom, save state, signature state
+  AppHeader
+    MenuBar: File | Edit | View | Window | Help
+    DocumentTabs: open PDFs, dirty marker, close button
+    QuickActions: Open | Save | Print | Undo | Redo | Search
+  ToolBar
+    Workspaces: Home | View | Comment | Edit | Fill & Sign | Organize
+    ContextTools: changes with active tool/workspace
+  Workspace
+    LeftRail: Hugeicons for thumbnails, outline, annotations, forms, pages
+    LeftPane: selected rail content; collapsible/resizable
+    Center: virtualized PdfCanvas with centered white pages
+    RightPane: properties, comments, form properties, review/signature state
+  StatusBar
+    PageCounter | Previous/Next | Zoom | FitMode | ViewMode | SaveState
 ```
+
+Visual rules:
+
+- Neutral application chrome; light-gray document canvas; white page surfaces
+  with subtle shadow and clear page boundaries.
+- Dense but calm desktop controls: compact toolbar heights, strong grouping,
+  visible active tool state, and no decorative dashboard cards.
+- Left rail is icon-first and narrow. Tooltips identify every icon. Expanded
+  pane remembers width per window.
+- Center canvas always owns most horizontal space. Side panes collapse before
+  the PDF page becomes too narrow.
+- Right pane is contextual, not permanent clutter: show properties/comments
+  when selected; otherwise keep it collapsed or show the current tool panel.
+- Use GPUI Component `Dock`/split primitives for pane resizing and persistence.
+- Use GPUI Component tabs, menus, buttons, dialogs, inputs, tooltips, lists,
+  and tables for chrome. Use custom elements only for the PDF canvas,
+  annotation overlays, page slots, and thumbnail rendering.
+- Pages remain visually stable while toolbars, search, or sidebars change.
+  Do not reflow page content when a panel opens; adjust viewport only.
+
+Responsive desktop behavior:
+
+- Wide window: left rail + left pane + canvas + right pane.
+- Medium window: left rail + canvas + one contextual pane; other pane becomes
+  a drawer.
+- Narrow window: canvas + overlay drawers; keep tool controls reachable through
+  toolbar overflow and command palette.
+
+Interaction conventions:
+
+- `Cmd/Ctrl+O` open, `Cmd/Ctrl+S` save, `Cmd/Ctrl+Shift+S` Save As,
+  `Cmd/Ctrl+F` search, `Cmd/Ctrl+Z` undo, `Cmd/Ctrl+Shift+Z` redo.
+- `Esc` exits active annotation/tool mode; `Space` temporarily pans the page.
+- Active tool remains visibly selected until committed or cancelled.
+- Single click selects; double click edits text/form/note where supported.
+- Every destructive action uses a GPUI Component confirmation dialog and is
+  undoable where technically possible.
+- Keyboard focus and pointer hit regions must remain usable at 100%, 125%, and
+  200% display scaling.
 
 Use GPUI actions for keyboard commands and route them through
 `CommandRouter`. Do not let individual buttons mutate the document directly.
@@ -659,6 +734,10 @@ Exit criteria:
 - `gpui-component` builds against the pinned GPUI revision on target platforms.
 - Main view uses `Root`; component theme initialization happens once at app
   startup.
+- Hugeicons registry renders approved icons through one wrapper, with asset
+  provenance/license notes and no fallback icon set.
+- Main window skeleton matches the documented Acrobat-familiar shell at wide
+  and medium desktop widths.
 - Text extraction, page geometry, and coordinate transforms are understood.
 - Dependency licenses are compatible with intended distribution.
 - Decision recorded: zpdf adapter accepted, or a concrete fallback selected.
@@ -741,8 +820,9 @@ fixture corpus before UI exposure.
 Execute in this order:
 
 1. Create Cargo workspace, choose Rust edition/MSRV, pin compatible GPUI and
-   `gpui-component` revisions, add formatting/lint/test commands, and create a
-   minimal window using `gpui_component::init(cx)` plus `Root`.
+   `gpui-component` revisions, add formatting/lint/test commands, add Hugeicons
+   asset/license handling, and create a minimal window using
+   `gpui_component::init(cx)` plus `Root`.
 2. Add `document-core` types: IDs, page geometry, coordinate transforms,
    capability flags, dirty state, command trait, and structured errors.
 3. Add `pdf-engine` traits and a zpdf adapter. Keep GPUI out of the crate.
@@ -878,3 +958,7 @@ Stop and report if:
   files, external links, and save paths as security-sensitive.
 - Revisit true text editing only after engine source-object mapping is proven
   on multilingual, rotated, subset-font, ligature, and scanned PDFs.
+- Keep Acrobat familiarity in layout and interaction hierarchy, but avoid
+  copying Adobe branding, proprietary artwork, or exact visual assets.
+- Keep Hugeicons usage centralized. Any icon replacement must update the
+  registry, accessibility label, visual snapshot, and license/provenance note.
