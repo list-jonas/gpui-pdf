@@ -1,20 +1,31 @@
 mod document_io;
 mod edits;
+mod geometry;
+mod interaction;
 mod layout;
+mod model;
+mod page_canvas;
+mod properties;
 
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use async_channel::{Receiver, Sender};
-use gpui::{AppContext, Context, Entity, RenderImage, SharedString, Window};
+use document_core::{PageGeometry, PdfRect};
+use gpui::{
+    AppContext, Bounds, Context, Entity, Pixels, RenderImage, ScrollHandle, SharedString, Window,
+};
 use gpui_component::input::InputState;
-use pdf_engine::{EditCommand, FormField};
+use pdf_engine::{EditCommand, FormField, TextFragment};
 
 use crate::field_input::FieldInput;
 use crate::page_image::render_image;
 use crate::{EditorRequest, EditorUpdate};
 
 use self::document_io::file_name;
+use self::model::{DragState, InlineText, Tool};
 
 pub struct EditorView {
     requests: Sender<EditorRequest>,
@@ -25,16 +36,20 @@ pub struct EditorView {
     detail: Option<SharedString>,
     extracted_text: Option<SharedString>,
     image: Option<Arc<RenderImage>>,
+    image_size: (u32, u32),
+    page_geometry: Option<PageGeometry>,
+    page_bounds: Rc<Cell<Bounds<Pixels>>>,
+    scroll: ScrollHandle,
     forms: Vec<FieldInput>,
+    fragments: Vec<TextFragment>,
     edits: Vec<EditCommand>,
-    add_text: Entity<InputState>,
-    text_x: Entity<InputState>,
-    text_y: Entity<InputState>,
-    text_size: Entity<InputState>,
-    redact_x0: Entity<InputState>,
-    redact_y0: Entity<InputState>,
-    redact_x1: Entity<InputState>,
-    redact_y1: Entity<InputState>,
+    tool: Tool,
+    zoom: f32,
+    drag: Option<DragState>,
+    selected_rects: Vec<PdfRect>,
+    selected_text: SharedString,
+    inline_text: Option<InlineText>,
+    highlight_color: (f64, f64, f64),
 }
 
 impl EditorView {
@@ -65,16 +80,20 @@ impl EditorView {
             detail: None,
             extracted_text: None,
             image: None,
+            image_size: (0, 0),
+            page_geometry: None,
+            page_bounds: Rc::new(Cell::new(Bounds::default())),
+            scroll: ScrollHandle::new(),
             forms: Vec::new(),
+            fragments: Vec::new(),
             edits: Vec::new(),
-            add_text: input("Text to add", "", window, cx),
-            text_x: input("X", "24", window, cx),
-            text_y: input("Y", "24", window, cx),
-            text_size: input("Size", "14", window, cx),
-            redact_x0: input("Left", "", window, cx),
-            redact_y0: input("Bottom", "", window, cx),
-            redact_x1: input("Right", "", window, cx),
-            redact_y1: input("Top", "", window, cx),
+            tool: Tool::Select,
+            zoom: 1.0,
+            drag: None,
+            selected_rects: Vec::new(),
+            selected_text: "No text selected".into(),
+            inline_text: None,
+            highlight_color: (1.0, 0.86, 0.2),
         }
     }
 
@@ -87,7 +106,7 @@ impl EditorView {
                     page,
                     rendered,
                     text,
-                    fragments: _,
+                    fragments,
                     forms,
                 } = *loaded;
                 self.path = Some(path.clone());
@@ -117,7 +136,13 @@ impl EditorView {
                     .into(),
                 );
                 self.extracted_text = Some(text.into());
+                self.image_size = (rendered.width, rendered.height);
                 self.image = render_image(rendered);
+                self.page_geometry = Some(page.geometry);
+                self.fragments = fragments;
+                self.drag = None;
+                self.selected_rects.clear();
+                self.inline_text = None;
                 self.forms = forms
                     .into_iter()
                     .map(|field| {
@@ -153,7 +178,7 @@ impl EditorView {
     }
 }
 
-fn input(
+pub(super) fn input(
     placeholder: &str,
     default: &str,
     window: &mut Window,

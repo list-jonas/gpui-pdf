@@ -1,10 +1,16 @@
 use std::path::PathBuf;
 
-use gpui::{AppContext, Application, KeyBinding, WindowOptions};
+use gpui::{AppContext, Application, KeyBinding, Menu, MenuItem, SystemMenuType, WindowOptions};
 use gpui_component::Root;
-use ui::{EditorRequest, EditorView, NextPage, OpenDocument, PreviousPage, SaveDocument};
+use ui::{
+    ActualSize, AddTextTool, CommitText, EditorRequest, EditorView, FitPage, HandTool,
+    HighlightTool, NextPage, OpenDocument, PreviousPage, RedactTool, SaveDocument, SelectTool,
+    ZoomIn, ZoomOut,
+};
 
 use crate::session;
+
+gpui::actions!(gpui_pdf, [Quit]);
 
 pub fn run() {
     let initial_path = std::env::args_os()
@@ -27,13 +33,27 @@ pub fn run() {
     });
     application.run(move |cx| {
         gpui_component::init(cx);
+        cx.activate(true);
+        cx.on_action(|_: &Quit, cx| cx.quit());
         cx.bind_keys([
             KeyBinding::new("cmd-o", OpenDocument, Some("PdfEditor")),
             KeyBinding::new("cmd-shift-s", SaveDocument, Some("PdfEditor")),
             KeyBinding::new("cmd-s", SaveDocument, Some("PdfEditor")),
             KeyBinding::new("left", PreviousPage, Some("PdfEditor")),
             KeyBinding::new("right", NextPage, Some("PdfEditor")),
+            KeyBinding::new("v", SelectTool, Some("PdfEditor")),
+            KeyBinding::new("h", HandTool, Some("PdfEditor")),
+            KeyBinding::new("u", HighlightTool, Some("PdfEditor")),
+            KeyBinding::new("t", AddTextTool, Some("PdfEditor")),
+            KeyBinding::new("r", RedactTool, Some("PdfEditor")),
+            KeyBinding::new("cmd-=", ZoomIn, Some("PdfEditor")),
+            KeyBinding::new("cmd--", ZoomOut, Some("PdfEditor")),
+            KeyBinding::new("cmd-0", FitPage, Some("PdfEditor")),
+            KeyBinding::new("cmd-1", ActualSize, Some("PdfEditor")),
+            KeyBinding::new("cmd-enter", CommitText, Some("PdfEditor")),
+            KeyBinding::new("cmd-q", Quit, None),
         ]);
+        cx.set_menus(app_menus());
         let requests = request_sender.clone();
         let updates = update_receiver.clone();
         cx.open_window(WindowOptions::default(), |window, cx| {
@@ -42,6 +62,55 @@ pub fn run() {
         })
         .expect("failed to open application window");
     });
+}
+
+fn app_menus() -> Vec<Menu> {
+    vec![
+        Menu {
+            name: "GPUI PDF".into(),
+            items: vec![
+                MenuItem::os_submenu("Services", SystemMenuType::Services),
+                MenuItem::separator(),
+                MenuItem::action("Quit GPUI PDF", Quit),
+            ],
+        },
+        Menu {
+            name: "File".into(),
+            items: vec![
+                MenuItem::action("Open…", OpenDocument),
+                MenuItem::action("Save As…", SaveDocument),
+            ],
+        },
+        Menu {
+            name: "View".into(),
+            items: vec![
+                MenuItem::action("Zoom In", ZoomIn),
+                MenuItem::action("Zoom Out", ZoomOut),
+                MenuItem::separator(),
+                MenuItem::action("Fit Page", FitPage),
+                MenuItem::action("Actual Size", ActualSize),
+            ],
+        },
+        Menu {
+            name: "Page".into(),
+            items: vec![
+                MenuItem::action("Previous Page", PreviousPage),
+                MenuItem::action("Next Page", NextPage),
+            ],
+        },
+        Menu {
+            name: "Tools".into(),
+            items: vec![
+                MenuItem::action("Select Text", SelectTool),
+                MenuItem::action("Hand / Pan", HandTool),
+                MenuItem::action("Highlight Text", HighlightTool),
+                MenuItem::action("Add Text", AddTextTool),
+                MenuItem::action("Redact", RedactTool),
+                MenuItem::separator(),
+                MenuItem::action("Commit Text", CommitText),
+            ],
+        },
+    ]
 }
 
 fn file_url_to_path(value: &str) -> Option<PathBuf> {
