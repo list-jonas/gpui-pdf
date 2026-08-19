@@ -4,20 +4,22 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::scroll::ScrollableElement;
-use gpui_component::{Disableable, Icon, IconName, TitleBar};
+use gpui_component::{Disableable, Icon, TitleBar};
 
 use crate::EditorView;
 use crate::actions::{
     AddTextTool, FitPage, HandTool, HighlightTool, NextPage, OpenDocument, PreviousPage,
     RedactTool, SaveDocument, SelectTool, ZoomIn, ZoomOut,
 };
+use crate::icons::HugeIcon;
 
 use super::model::Tool;
 
+#[derive(Clone, Copy)]
 struct ToolButtonSpec {
     id: &'static str,
     label: &'static str,
-    icon: IconName,
+    icon: HugeIcon,
     color: u32,
     tool: Tool,
 }
@@ -35,7 +37,7 @@ impl EditorView {
         };
 
         TitleBar::new()
-            .h(px(72.0))
+            .h(px(56.0))
             .bg(rgb(0x0014_171b))
             .border_color(rgb(0x0028_2c32))
             .text_color(rgb(0x00f5_f7fa))
@@ -50,7 +52,7 @@ impl EditorView {
                         div()
                             .flex()
                             .flex_col()
-                            .gap_0p5()
+                            .gap_0()
                             .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
                             .child(
                                 div()
@@ -74,8 +76,8 @@ impl EditorView {
                     .child(
                         div()
                             .ml_auto()
-                            .w(px(190.0))
-                            .h_9()
+                            .w(px(180.0))
+                            .h_8()
                             .flex()
                             .items_center()
                             .gap_2()
@@ -86,12 +88,12 @@ impl EditorView {
                             .bg(rgb(0x0011_1316))
                             .text_sm()
                             .text_color(rgb(0x008c_939d))
-                            .child(Icon::new(IconName::Search).size_4())
+                            .child(Icon::new(HugeIcon::Search).size_4())
                             .child("Search"),
                     )
                     .child(
                         Button::new("open")
-                            .icon(IconName::FolderOpen)
+                            .icon(HugeIcon::Open)
                             .ghost()
                             .tooltip("Open PDF")
                             .on_click(cx.listener(|view, _, window, cx| {
@@ -100,7 +102,7 @@ impl EditorView {
                     )
                     .child(
                         Button::new("save")
-                            .icon(IconName::ExternalLink)
+                            .icon(HugeIcon::Share)
                             .ghost()
                             .tooltip("Save As…")
                             .on_click(cx.listener(|view, _, window, cx| {
@@ -109,7 +111,7 @@ impl EditorView {
                     )
                     .child(
                         Button::new("more")
-                            .icon(IconName::Ellipsis)
+                            .icon(HugeIcon::More)
                             .ghost()
                             .tooltip("More"),
                     ),
@@ -118,7 +120,7 @@ impl EditorView {
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .h(px(96.0))
+            .h(px(82.0))
             .flex()
             .items_center()
             .justify_center()
@@ -131,7 +133,7 @@ impl EditorView {
                 ToolButtonSpec {
                     id: "select",
                     label: "Select",
-                    icon: IconName::Frame,
+                    icon: HugeIcon::Select,
                     color: 0x004e_9cff,
                     tool: Tool::Select,
                 },
@@ -142,7 +144,7 @@ impl EditorView {
                 ToolButtonSpec {
                     id: "hand",
                     label: "Hand",
-                    icon: IconName::Maximize,
+                    icon: HugeIcon::Hand,
                     color: 0x00c5_cbd3,
                     tool: Tool::Hand,
                 },
@@ -152,20 +154,20 @@ impl EditorView {
             .child(Self::tool_placeholder(
                 "annotate",
                 "Annotate",
-                IconName::Inspector,
+                HugeIcon::Annotate,
                 0x00c5_cbd3,
             ))
             .child(Self::tool_placeholder(
                 "edit",
                 "Edit",
-                IconName::CaseSensitive,
+                HugeIcon::Edit,
                 0x004e_9cff,
             ))
             .child(self.tool_button(
                 ToolButtonSpec {
                     id: "add-text",
                     label: "Text",
-                    icon: IconName::ALargeSmall,
+                    icon: HugeIcon::Text,
                     color: 0x00d5_d7dc,
                     tool: Tool::AddText,
                 },
@@ -175,20 +177,20 @@ impl EditorView {
             .child(Self::tool_placeholder(
                 "image",
                 "Image",
-                IconName::GalleryVerticalEnd,
+                HugeIcon::Image,
                 0x006b_d96b,
             ))
             .child(Self::tool_placeholder(
                 "link",
                 "Link",
-                IconName::ExternalLink,
+                HugeIcon::Link,
                 0x00c5_cbd3,
             ))
             .child(self.tool_button(
                 ToolButtonSpec {
                     id: "highlight",
                     label: "Highlight",
-                    icon: IconName::Palette,
+                    icon: HugeIcon::Highlight,
                     color: 0x00ff_d84d,
                     tool: Tool::Highlight,
                 },
@@ -200,15 +202,15 @@ impl EditorView {
 
     fn trailing_toolbar_items(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         vec![
-            Self::tool_placeholder("underline", "Underline", IconName::Dash, 0x00b4_63ff)
+            Self::tool_placeholder("underline", "Underline", HugeIcon::Underline, 0x00b4_63ff)
                 .into_any_element(),
-            Self::tool_placeholder("strike", "Strike", IconName::Minus, 0x00ff_4f47)
+            Self::tool_placeholder("strike", "Strike", HugeIcon::Strike, 0x00ff_4f47)
                 .into_any_element(),
             self.tool_button(
                 ToolButtonSpec {
                     id: "redact",
                     label: "Redact",
-                    icon: IconName::Delete,
+                    icon: HugeIcon::Redact,
                     color: 0x00ff_3d94,
                     tool: Tool::Redact,
                 },
@@ -216,11 +218,10 @@ impl EditorView {
                 cx,
             )
             .into_any_element(),
-            Self::tool_placeholder("shapes", "Shapes", IconName::Frame, 0x00ca_61ff)
+            Self::tool_placeholder("shapes", "Shapes", HugeIcon::Shapes, 0x00ca_61ff)
                 .into_any_element(),
-            Self::tool_placeholder("sign", "Sign", IconName::CaseSensitive, 0x004e_a4ff)
-                .into_any_element(),
-            Self::tool_placeholder("tools-more", "More", IconName::Ellipsis, 0x00c5_cbd3)
+            Self::tool_placeholder("sign", "Sign", HugeIcon::Sign, 0x004e_a4ff).into_any_element(),
+            Self::tool_placeholder("tools-more", "More", HugeIcon::More, 0x00c5_cbd3)
                 .into_any_element(),
         ]
     }
@@ -235,21 +236,21 @@ impl EditorView {
         div()
             .id(spec.id)
             .w(px(70.0))
-            .h(px(76.0))
+            .h(px(64.0))
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
-            .gap_2()
+            .gap_1()
             .rounded_lg()
-            .text_sm()
+            .text_xs()
             .text_color(rgb(0x00eb_edf0))
             .cursor_pointer()
             .when(selected, |item| item.bg(rgb(0x0027_2d38)))
             .when(!selected, |item| {
                 item.hover(|style| style.bg(rgb(0x0020_242a)))
             })
-            .child(Icon::new(spec.icon).size_6().text_color(rgb(spec.color)))
+            .child(Icon::new(spec.icon).size_5().text_color(rgb(spec.color)))
             .child(spec.label)
             .on_click(cx.listener(move |_, _, window, cx| {
                 window.dispatch_action(action.boxed_clone(), cx);
@@ -259,23 +260,23 @@ impl EditorView {
     fn tool_placeholder(
         id: &'static str,
         label: &'static str,
-        icon: IconName,
+        icon: HugeIcon,
         color: u32,
     ) -> impl IntoElement {
         div()
             .id(id)
             .w(px(70.0))
-            .h(px(76.0))
+            .h(px(64.0))
             .flex()
             .flex_col()
             .items_center()
             .justify_center()
-            .gap_2()
+            .gap_1()
             .rounded_lg()
-            .text_sm()
+            .text_xs()
             .text_color(rgb(0x00d5_d8dd))
-            .opacity(0.72)
-            .child(Icon::new(icon).size_6().text_color(rgb(color)))
+            .opacity(0.45)
+            .child(Icon::new(icon).size_5().text_color(rgb(color)))
             .child(label)
     }
 
@@ -302,7 +303,7 @@ impl EditorView {
                     .text_color(rgb(0x00f3_f4f6))
                     .child(
                         Button::new("previous")
-                            .icon(IconName::ChevronLeft)
+                            .icon(HugeIcon::Previous)
                             .ghost()
                             .disabled(self.page_index == 0)
                             .tooltip("Previous page")
@@ -317,7 +318,7 @@ impl EditorView {
                     )))
                     .child(
                         Button::new("next")
-                            .icon(IconName::ChevronRight)
+                            .icon(HugeIcon::Next)
                             .ghost()
                             .disabled(
                                 self.page_count == 0 || self.page_index + 1 >= self.page_count,
@@ -330,7 +331,7 @@ impl EditorView {
                     .child(div().h_6().w_px().mx_2().bg(rgb(0x0033_3740)))
                     .child(
                         Button::new("zoom-out")
-                            .icon(IconName::Minus)
+                            .icon(HugeIcon::ZoomOut)
                             .ghost()
                             .tooltip("Zoom out")
                             .on_click(cx.listener(|view, _, window, cx| {
@@ -346,7 +347,7 @@ impl EditorView {
                     )
                     .child(
                         Button::new("zoom-in")
-                            .icon(IconName::Plus)
+                            .icon(HugeIcon::ZoomIn)
                             .ghost()
                             .tooltip("Zoom in")
                             .on_click(cx.listener(|view, _, window, cx| {
@@ -355,7 +356,7 @@ impl EditorView {
                     )
                     .child(
                         Button::new("fit")
-                            .icon(IconName::Maximize)
+                            .icon(HugeIcon::Fit)
                             .ghost()
                             .tooltip("Fit page")
                             .on_click(cx.listener(|view, _, window, cx| {
@@ -430,9 +431,9 @@ impl EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        self.sync_current_page_from_scroll();
         div()
             .key_context("PdfEditor")
+            .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::open_picker))
             .on_action(cx.listener(Self::save_picker))
             .on_action(cx.listener(Self::previous_page))

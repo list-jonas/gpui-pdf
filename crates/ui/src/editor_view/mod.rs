@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
 use document_core::PdfRect;
-use gpui::{AppContext, Context, Entity, ScrollHandle, SharedString, Window};
+use gpui::{AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Window};
 use gpui_component::input::InputState;
 use pdf_engine::{EditCommand, FormField};
 
@@ -36,6 +36,7 @@ pub struct EditorView {
     pdf_version: (u8, u8),
     pages: Vec<DocumentPage>,
     loaded_pages: usize,
+    focus_handle: FocusHandle,
     scroll: ScrollHandle,
     forms: Vec<FieldInput>,
     edits: Vec<EditCommand>,
@@ -55,6 +56,8 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let focus_handle = cx.focus_handle();
+        focus_handle.focus(window);
         cx.spawn_in(window, async move |view, cx| {
             while let Ok(update) = updates.recv().await {
                 if view
@@ -78,6 +81,7 @@ impl EditorView {
             pdf_version: (0, 0),
             pages: Vec::new(),
             loaded_pages: 0,
+            focus_handle,
             scroll: ScrollHandle::new(),
             forms: Vec::new(),
             edits: Vec::new(),

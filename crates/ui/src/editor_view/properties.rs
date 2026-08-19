@@ -21,9 +21,9 @@ impl EditorView {
             .flex()
             .flex_col()
             .gap_4()
-            .bg(rgb(0x00fa_fafa))
+            .bg(rgb(0x0011_1418))
             .border_l_1()
-            .border_color(rgb(0x00d8_dadd))
+            .border_color(rgb(0x0025_292f))
             .child(
                 div()
                     .text_lg()
@@ -33,7 +33,7 @@ impl EditorView {
             .child(
                 div()
                     .text_sm()
-                    .text_color(rgb(0x0058_5d63))
+                    .text_color(rgb(0x009c_a3ad))
                     .child(format!("{} tool", self.tool.label())),
             );
 
@@ -43,9 +43,9 @@ impl EditorView {
                     div()
                         .pt_4()
                         .border_t_1()
-                        .border_color(rgb(0x00df_e1e5))
+                        .border_color(rgb(0x0025_292f))
                         .text_xs()
-                        .text_color(rgb(0x006b_7076))
+                        .text_color(rgb(0x009c_a3ad))
                         .child(detail),
                 )
             })
@@ -68,7 +68,7 @@ impl EditorView {
                         div()
                             .p_3()
                             .rounded_md()
-                            .bg(rgb(0x00f0_f1f3))
+                            .bg(rgb(0x001c_2026))
                             .text_sm()
                             .child(self.selected_text.clone()),
                     ),
@@ -115,8 +115,8 @@ impl EditorView {
                     div()
                         .p_3()
                         .rounded_md()
-                        .bg(rgb(0x00ff_ebe9))
-                        .text_color(rgb(0x009a_281f))
+                        .bg(rgb(0x0038_1719))
+                        .text_color(rgb(0x00ff_a4a4))
                         .child("Verify saved output before distributing."),
                 ),
         }

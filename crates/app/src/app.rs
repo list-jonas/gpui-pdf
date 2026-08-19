@@ -26,7 +26,7 @@ pub fn run() {
         let _ = request_sender.try_send(EditorRequest::Open(path));
     }
 
-    let application = Application::new();
+    let application = Application::new().with_assets(ui::Assets);
     let finder_sender = request_sender.clone();
     application.on_open_urls(move |urls| {
         for path in urls.iter().filter_map(|value| file_url_to_path(value)) {
