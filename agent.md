@@ -8,3 +8,12 @@
 - Use Luna subagents for independent parallel work when doing so speeds up development.
 - Make small, cohesive commits during implementation.
 - Push completed commits when a Git remote is configured and the requested checks pass.
+- Ship a valid macOS application bundle that registers as a PDF viewer and opens Finder PDF events.
+- Keep common file, page, view, and editing commands in the native menu bar with keyboard shortcuts.
+- Present an Acrobat-like workspace with page navigation, document canvas, tool controls, and properties.
+- Support zoom, fit-page, scrolling, and direct hand-tool panning.
+- Place editable AcroForm controls over their real PDF widget rectangles.
+- Perform text selection and colored highlighting against extracted PDF text geometry.
+- Add text directly on the page and preview it at its saved PDF position.
+- Select redaction regions directly on the page and permanently apply them during export.
+- Verify saved PDFs by reopening them and testing edited content and annotations.
