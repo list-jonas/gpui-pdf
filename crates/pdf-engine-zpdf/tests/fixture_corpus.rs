@@ -1,8 +1,10 @@
+use document_core::PdfRect;
 use pdf_engine::{
-    EngineError, EngineErrorKind, OpenRequest, Password, PdfDocument, PdfEngine, RenderRequest,
+    EditCommand, EngineError, EngineErrorKind, OpenRequest, Password, PdfDocument, PdfEngine,
+    RenderRequest, TextStamp,
 };
 use pdf_engine_zpdf::ZpdfEngine;
-use test_support::{image_pdf, malformed_pdf, rotated_pdf, text_pdf};
+use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, text_pdf};
 use zpdf::PdfDocument as NativeDocument;
 use zpdf_writer::{EncryptionConfig, RewriteOptions, rewrite_pdf};
 
@@ -87,6 +89,62 @@ fn malformed_fixture_fails_without_panicking() {
     let error = expect_error(ZpdfEngine.open(OpenRequest::new(malformed_pdf())));
 
     assert_eq!(error.kind(), EngineErrorKind::InvalidDocument);
+}
+
+#[test]
+fn form_fields_fill_and_round_trip() {
+    let mut document = ZpdfEngine.open(OpenRequest::new(form_pdf())).unwrap();
+    let fields = document.form_fields().unwrap();
+    assert_eq!(fields[0].name, "customer.name");
+    assert_eq!(fields[0].value, "Original");
+
+    let output = document
+        .export(&[EditCommand::FillForm {
+            name: "customer.name".to_owned(),
+            value: "Ada Lovelace".to_owned(),
+        }])
+        .unwrap();
+    let reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+
+    assert_eq!(reopened.form_fields().unwrap()[0].value, "Ada Lovelace");
+}
+
+#[test]
+fn added_text_is_extractable_after_save() {
+    let mut document = ZpdfEngine.open(OpenRequest::new(text_pdf())).unwrap();
+    let output = document
+        .export(&[EditCommand::AddText(TextStamp {
+            page_index: 0,
+            text: "Added by Luna PDF".to_owned(),
+            x: 20.0,
+            y: 20.0,
+            size: 12.0,
+        })])
+        .unwrap();
+    let mut reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+
+    assert!(
+        reopened
+            .extract_text(0)
+            .unwrap()
+            .contains("Added by Luna PDF")
+    );
+}
+
+#[test]
+fn redaction_rewrites_file_and_removes_target_text() {
+    let mut document = ZpdfEngine.open(OpenRequest::new(form_pdf())).unwrap();
+    let output = document
+        .export(&[EditCommand::Redact {
+            page_index: 0,
+            rect: PdfRect::new(40.0, 70.0, 200.0, 100.0).unwrap(),
+        }])
+        .unwrap();
+    let mut reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+    let text = reopened.extract_text(0).unwrap();
+
+    assert!(!text.contains("secret value"));
+    assert!(text.contains("public value"));
 }
 
 fn expect_error(result: Result<Box<dyn PdfDocument>, EngineError>) -> EngineError {

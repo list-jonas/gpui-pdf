@@ -141,6 +141,30 @@ fn run(
                     return;
                 }
             }
+            DocumentCommand::FormFields => {
+                let event = match document.form_fields() {
+                    Ok(fields) => DocumentEvent::FormFields(fields),
+                    Err(error) => DocumentEvent::Failed {
+                        operation: Operation::Forms,
+                        error,
+                    },
+                };
+                if events.send(event).is_err() {
+                    return;
+                }
+            }
+            DocumentCommand::Export { edits } => {
+                let event = match document.export(&edits) {
+                    Ok(bytes) => DocumentEvent::Exported(bytes),
+                    Err(error) => DocumentEvent::Failed {
+                        operation: Operation::Export,
+                        error,
+                    },
+                };
+                if events.send(event).is_err() {
+                    return;
+                }
+            }
             DocumentCommand::Shutdown => break,
         }
     }
@@ -154,8 +178,8 @@ mod tests {
 
     use document_core::{EngineCapabilities, PageGeometry, PdfRect, Rotation};
     use pdf_engine::{
-        DocumentMetadata, EngineError, OpenRequest, PageMetadata, PdfEngine, PdfReader,
-        PdfRenderer, RenderRequest, RenderedPage,
+        DocumentMetadata, EditCommand, EngineError, FormField, OpenRequest, PageMetadata,
+        PdfEditor, PdfEngine, PdfReader, PdfRenderer, RenderRequest, RenderedPage,
     };
 
     use super::*;
@@ -198,6 +222,16 @@ mod tests {
     impl PdfRenderer for FakeDocument {
         fn render_page(&mut self, _: RenderRequest) -> Result<RenderedPage, EngineError> {
             Ok(RenderedPage::new(1, 1, vec![0, 0, 0, 255]))
+        }
+    }
+
+    impl PdfEditor for FakeDocument {
+        fn form_fields(&self) -> Result<Vec<FormField>, EngineError> {
+            Ok(Vec::new())
+        }
+
+        fn export(&mut self, _: &[EditCommand]) -> Result<Vec<u8>, EngineError> {
+            Ok(b"pdf".to_vec())
         }
     }
 

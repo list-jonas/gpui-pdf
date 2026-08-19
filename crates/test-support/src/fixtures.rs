@@ -39,6 +39,19 @@ pub fn malformed_pdf() -> Vec<u8> {
     b"%PDF-1.7\n1 0 obj\n<< definitely not complete".to_vec()
 }
 
+pub fn form_pdf() -> Vec<u8> {
+    let content = b"BT /F1 12 Tf 50 80 Td (secret value) Tj 0 -40 Td (public value) Tj ET";
+    build_pdf(&[
+        b"<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 180] /Resources << /Font << /F1 7 0 R >> >> /Contents 4 0 R /Annots [6 0 R] >>".to_vec(),
+        stream("", content),
+        b"<< /Fields [6 0 R] /DA (/F1 12 Tf 0 g) /DR << /Font << /F1 7 0 R >> >> >>".to_vec(),
+        b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (customer.name) /V (Original) /Rect [50 120 200 150] /P 3 0 R /DA (/F1 12 Tf 0 g) >>".to_vec(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -48,5 +61,6 @@ mod tests {
         assert_ne!(text_pdf(), rotated_pdf());
         assert_ne!(text_pdf(), image_pdf());
         assert!(malformed_pdf().starts_with(b"%PDF"));
+        assert_ne!(text_pdf(), form_pdf());
     }
 }

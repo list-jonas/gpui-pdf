@@ -4,7 +4,9 @@ use pdf_engine::{
 };
 use std::io::Cursor;
 use zpdf::{ContentInterpreter, ImageCache, RenderBackend, TextSpan};
-use zpdf_writer::{FormFiller, IncrementalWriter, RedactOptions, StampItem};
+use zpdf_writer::{
+    FormFiller, IncrementalWriter, RedactOptions, RewriteOptions, StampItem, rewrite_pdf,
+};
 
 use crate::convert::{map_engine_error, map_render_error, page_geometry};
 
@@ -54,6 +56,15 @@ impl PdfEditor for ZpdfDocument {
     }
 
     fn export(&mut self, edits: &[EditCommand]) -> Result<Vec<u8>, EngineError> {
+        let has_redactions = edits
+            .iter()
+            .any(|edit| matches!(edit, EditCommand::Redact { .. }));
+        if has_redactions && self.inner.is_encrypted() {
+            return Err(EngineError::new(
+                EngineErrorKind::Unsupported,
+                "redacting encrypted PDFs is not supported",
+            ));
+        }
         let mut writer = if self.password.is_empty() {
             IncrementalWriter::new(self.source.clone())
         } else {
@@ -66,7 +77,12 @@ impl PdfEditor for ZpdfDocument {
         }
         let mut output = Cursor::new(Vec::new());
         writer.write(&mut output).map_err(map_write_error)?;
-        Ok(output.into_inner())
+        let output = output.into_inner();
+        if !has_redactions {
+            return Ok(output);
+        }
+        let redacted = zpdf::PdfDocument::open(output).map_err(map_write_error)?;
+        rewrite_pdf(redacted.file(), &RewriteOptions::default()).map_err(map_write_error)
     }
 }
 
@@ -90,9 +106,30 @@ fn convert_field(field: &zpdf::FormField) -> FormField {
 fn apply_edit(writer: &mut IncrementalWriter, edit: &EditCommand) -> Result<(), EngineError> {
     match edit {
         EditCommand::FillForm { name, value } => {
+            let field = writer
+                .document()
+                .acro_form()
+                .and_then(|form| form.fields.iter().find(|field| field.name == *name))
+                .cloned();
             let mut filler = FormFiller::new(writer).map_err(map_write_error)?;
             filler.set(name, value).map_err(map_write_error)?;
-            filler.finish().map_err(map_write_error)
+            filler.finish().map_err(map_write_error)?;
+            if let Some(field) = field.filter(|field| {
+                matches!(field.kind, zpdf::FieldKind::Text | zpdf::FieldKind::Choice)
+            }) {
+                let mut dictionary = writer
+                    .resolve_current(field.field_id)
+                    .map_err(map_write_error)?
+                    .as_dict()
+                    .map_err(map_write_error)?
+                    .clone();
+                dictionary.insert(
+                    zpdf::PdfName::new("V"),
+                    zpdf::PdfObject::String(zpdf::PdfString(encode_pdf_string(value))),
+                );
+                writer.overwrite_object(field.field_id, zpdf::PdfObject::Dict(dictionary));
+            }
+            Ok(())
         }
         EditCommand::AddText(stamp) => writer
             .stamp_page(
@@ -117,6 +154,15 @@ fn apply_edit(writer: &mut IncrementalWriter, edit: &EditCommand) -> Result<(), 
             )
             .map_err(map_write_error),
     }
+}
+
+fn encode_pdf_string(value: &str) -> Vec<u8> {
+    if value.is_ascii() {
+        return value.as_bytes().to_vec();
+    }
+    let mut encoded = vec![0xfe, 0xff];
+    encoded.extend(value.encode_utf16().flat_map(u16::to_be_bytes));
+    encoded
 }
 
 fn map_write_error(error: impl std::fmt::Display) -> EngineError {

@@ -1,4 +1,7 @@
-use pdf_engine::{DocumentMetadata, EngineError, PageMetadata, RenderRequest, RenderedPage};
+use pdf_engine::{
+    DocumentMetadata, EditCommand, EngineError, FormField, PageMetadata, RenderRequest,
+    RenderedPage,
+};
 
 use crate::Generation;
 
@@ -8,9 +11,11 @@ pub enum Operation {
     PageMetadata,
     Render,
     ExtractText,
+    Forms,
+    Export,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum DocumentCommand {
     PageMetadata {
         page_index: usize,
@@ -21,6 +26,10 @@ pub enum DocumentCommand {
     },
     ExtractText {
         page_index: usize,
+    },
+    FormFields,
+    Export {
+        edits: Vec<EditCommand>,
     },
     Shutdown,
 }
@@ -38,6 +47,8 @@ pub enum DocumentEvent {
         page_index: usize,
         text: String,
     },
+    FormFields(Vec<FormField>),
+    Exported(Vec<u8>),
     Failed {
         operation: Operation,
         error: EngineError,
