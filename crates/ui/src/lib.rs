@@ -9,4 +9,4 @@ pub use actions::{
     PreviousPage, RedactTool, SaveDocument, SelectTool, ZoomIn, ZoomOut,
 };
 pub use editor_view::EditorView;
-pub use protocol::{EditorRequest, EditorUpdate, LoadedDocument};
+pub use protocol::{EditorRequest, EditorUpdate, LoadedPage, OpenedDocument};

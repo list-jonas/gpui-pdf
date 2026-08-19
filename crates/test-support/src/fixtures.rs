@@ -1,5 +1,7 @@
 use crate::pdf_builder::{build_pdf, stream};
 
+pub const MULTI_PAGE_COUNT: usize = 3;
+
 pub fn text_pdf() -> Vec<u8> {
     let content = b"BT /F1 18 Tf 20 50 Td (Phase zero) Tj ET";
     build_pdf(&[
@@ -59,6 +61,36 @@ pub fn form_pdf() -> Vec<u8> {
     ])
 }
 
+pub fn multi_page_pdf() -> Vec<u8> {
+    let font_id = 3 + MULTI_PAGE_COUNT * 2;
+    let page_ids: Vec<_> = (0..MULTI_PAGE_COUNT).map(|index| 3 + index * 2).collect();
+    let kids = page_ids
+        .iter()
+        .map(|page_id| format!("{page_id} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!("<< /Type /Pages /Kids [{kids}] /Count {MULTI_PAGE_COUNT} >>").into_bytes(),
+    ];
+
+    for (index, page_id) in page_ids.iter().enumerate() {
+        let content_id = page_id + 1;
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] \
+                 /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+            )
+            .into_bytes(),
+        );
+        let content = format!("BT /F1 18 Tf 20 50 Td (Fixture page {}) Tj ET", index + 1);
+        objects.push(stream("", content.as_bytes()));
+    }
+
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec());
+    build_pdf(&objects)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +101,21 @@ mod tests {
         assert_ne!(text_pdf(), image_pdf());
         assert!(malformed_pdf().starts_with(b"%PDF"));
         assert_ne!(text_pdf(), form_pdf());
+    }
+
+    #[test]
+    fn multi_page_fixture_has_expected_page_count() {
+        let pdf = multi_page_pdf();
+
+        assert!(
+            pdf.windows(b"/Count 3".len())
+                .any(|window| window == b"/Count 3")
+        );
+        for page_number in 1..=MULTI_PAGE_COUNT {
+            assert!(
+                pdf.windows(format!("Fixture page {page_number}").len())
+                    .any(|window| window == format!("Fixture page {page_number}").as_bytes())
+            );
+        }
     }
 }

@@ -94,26 +94,38 @@ impl EditorView {
         cx: &mut Context<Self>,
     ) {
         if self.page_index > 0 {
-            self.load_page(self.page_index - 1, cx);
+            self.jump_to_page(self.page_index - 1, cx);
         }
     }
 
     pub(super) fn next_page(&mut self, _: &NextPage, _: &mut Window, cx: &mut Context<Self>) {
         if self.page_index + 1 < self.page_count {
-            self.load_page(self.page_index + 1, cx);
+            self.jump_to_page(self.page_index + 1, cx);
         }
     }
 
-    fn load_page(&mut self, page_index: usize, cx: &mut Context<Self>) {
-        let Some(path) = self.path.clone() else {
+    pub(super) fn jump_to_page(&mut self, page_index: usize, cx: &mut Context<Self>) {
+        if page_index >= self.pages.len() {
             return;
-        };
+        }
         self.capture_form_edits(cx);
-        self.status = format!("Loading page {}…", page_index + 1).into();
-        let _ = self
-            .requests
-            .try_send(EditorRequest::LoadPage { path, page_index });
+        self.set_current_page(page_index);
+        self.scroll.scroll_to_top_of_item(page_index);
         cx.notify();
+    }
+
+    pub(super) fn set_current_page(&mut self, page_index: usize) {
+        if page_index < self.pages.len() {
+            self.page_index = page_index;
+            self.refresh_active_page();
+        }
+    }
+
+    pub(super) fn sync_current_page_from_scroll(&mut self) {
+        if self.pages.is_empty() || self.scroll.children_count() == 0 {
+            return;
+        }
+        self.set_current_page(self.scroll.top_item().min(self.pages.len() - 1));
     }
 }
 

@@ -40,3 +40,6 @@ missing_errors_doc = "allow"
 
 [profile.dev]
 debug = "limited"
+
+[patch.crates-io]
+gpui = { path = "vendor/gpui" }

@@ -7,10 +7,6 @@ use pdf_engine::{
 #[derive(Debug)]
 pub enum EditorRequest {
     Open(PathBuf),
-    LoadPage {
-        path: PathBuf,
-        page_index: usize,
-    },
     SaveAs {
         source: PathBuf,
         destination: PathBuf,
@@ -21,18 +17,25 @@ pub enum EditorRequest {
 
 #[derive(Debug)]
 pub enum EditorUpdate {
-    Loaded(Box<LoadedDocument>),
+    Opened(Box<OpenedDocument>),
+    PageLoaded(Box<LoadedPage>),
     Saved(PathBuf),
     Failed(String),
 }
 
 #[derive(Debug)]
-pub struct LoadedDocument {
+pub struct OpenedDocument {
     pub path: PathBuf,
     pub document: DocumentMetadata,
+    pub pages: Vec<PageMetadata>,
+    pub forms: Vec<FormField>,
+    pub initial_page: usize,
+}
+
+#[derive(Debug)]
+pub struct LoadedPage {
     pub page: PageMetadata,
     pub rendered: RenderedPage,
     pub text: String,
     pub fragments: Vec<TextFragment>,
-    pub forms: Vec<FormField>,
 }

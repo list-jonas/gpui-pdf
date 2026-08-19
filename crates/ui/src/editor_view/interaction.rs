@@ -1,4 +1,7 @@
-use gpui::{Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Window, point, px};
+use gpui::{
+    Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent, ScrollWheelEvent, Window,
+    point, px,
+};
 use pdf_engine::{EditCommand, TextStamp};
 
 use crate::actions::{
@@ -8,7 +11,8 @@ use crate::actions::{
 use crate::editor_view::input;
 
 use super::EditorView;
-use super::geometry::{page_point, raster_f32};
+use super::geometry::page_point;
+use super::gestures::{AnchorContext, DocumentMetrics, anchored_document_offset, pinch_zoom};
 use super::model::{DragState, InlineText, Tool};
 
 impl EditorView {
@@ -63,12 +67,12 @@ impl EditorView {
 
     pub(super) fn fit_page(&mut self, _: &FitPage, _: &mut Window, cx: &mut Context<Self>) {
         let viewport = self.scroll.bounds().size;
-        let (width, height) = self.image_size;
-        if width == 0 || height == 0 {
+        let Some(page) = self.pages.get(self.page_index) else {
             return;
-        }
-        let x = (f32::from(viewport.width) - 64.0) / raster_f32(width);
-        let y = (f32::from(viewport.height) - 64.0) / raster_f32(height);
+        };
+        let (width, height) = page.image_size;
+        let x = (f32::from(viewport.width) - 64.0) / width;
+        let y = (f32::from(viewport.height) - 64.0) / height;
         self.set_zoom(x.min(y), cx);
     }
 
@@ -78,15 +82,91 @@ impl EditorView {
         cx.notify();
     }
 
+    pub(super) fn document_scroll_wheel(
+        &mut self,
+        _: &ScrollWheelEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.sync_current_page_from_scroll();
+        self.refresh_active_page();
+        cx.notify();
+    }
+
+    pub(super) fn document_pinch(
+        &mut self,
+        event: &PinchEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let old_zoom = self.zoom;
+        let new_zoom = pinch_zoom(old_zoom, event.delta);
+        if (new_zoom - old_zoom).abs() < f32::EPSILON {
+            return;
+        }
+
+        let page_index = self
+            .pages
+            .iter()
+            .position(|page| page.bounds.get().contains(&event.position))
+            .unwrap_or(self.page_index);
+        let Some(page) = self.pages.get(page_index) else {
+            return;
+        };
+        let ratio = new_zoom / old_zoom;
+        let viewport = self.scroll.bounds();
+        let metrics = DocumentMetrics {
+            page_count: self.pages.len(),
+            max_page_width: self
+                .pages
+                .iter()
+                .map(|page| page.image_size.0)
+                .fold(0.0, f32::max),
+            total_page_height: self.pages.iter().map(|page| page.image_size.1).sum(),
+            prior_page_height: self.pages[..page_index]
+                .iter()
+                .map(|page| page.image_size.1)
+                .sum(),
+            page_size: page.image_size,
+        };
+        let (x, y) = anchored_document_offset(
+            metrics,
+            AnchorContext {
+                page_index,
+                zoom: new_zoom,
+                ratio,
+                viewport_origin: (f32::from(viewport.origin.x), f32::from(viewport.origin.y)),
+                viewport_size: (
+                    f32::from(viewport.size.width),
+                    f32::from(viewport.size.height),
+                ),
+                pointer: (f32::from(event.position.x), f32::from(event.position.y)),
+                page_origin: (
+                    f32::from(page.bounds.get().origin.x),
+                    f32::from(page.bounds.get().origin.y),
+                ),
+            },
+        );
+        self.scroll.set_offset(point(px(x), px(y)));
+        self.set_zoom(new_zoom, cx);
+    }
+
     pub(super) fn page_mouse_down(
         &mut self,
+        page_index: usize,
         event: &MouseDownEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.image.is_none() {
+        if self
+            .pages
+            .get(page_index)
+            .and_then(|page| page.image.as_ref())
+            .is_none()
+        {
             return;
         }
+        self.set_current_page(page_index);
         if self.tool == Tool::Hand {
             self.drag = Some(DragState::Pan {
                 start: event.position,
@@ -94,15 +174,20 @@ impl EditorView {
             });
             return;
         }
-        let Some(point) = self.pdf_point(event.position) else {
+        let Some(point) = self.pdf_point(page_index, event.position) else {
             return;
         };
         if self.tool == Tool::AddText {
             let text = input("Type on page", "", window, cx);
             text.update(cx, |state, cx| state.focus(window, cx));
-            self.inline_text = Some(InlineText { point, input: text });
+            self.inline_text = Some(InlineText {
+                page_index,
+                point,
+                input: text,
+            });
         } else {
             self.drag = Some(DragState::Region {
+                page_index,
                 start: point,
                 current: point,
             });
@@ -116,7 +201,12 @@ impl EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let pointer = self.pdf_point(event.position);
+        let pointer = match &self.drag {
+            Some(DragState::Region { page_index, .. }) => {
+                self.pdf_point(*page_index, event.position)
+            }
+            _ => None,
+        };
         match &mut self.drag {
             Some(DragState::Pan { start, offset }) => {
                 let x = f32::from(offset.x) + f32::from(event.position.x - start.x);
@@ -147,7 +237,11 @@ impl EditorView {
         let Some(mut drag) = self.drag.take() else {
             return;
         };
-        if let Some(point) = self.pdf_point(event.position)
+        let page_index = match &drag {
+            DragState::Region { page_index, .. } => *page_index,
+            DragState::Pan { .. } => return,
+        };
+        if let Some(point) = self.pdf_point(page_index, event.position)
             && let DragState::Region { current, .. } = &mut drag
         {
             *current = point;
@@ -156,27 +250,27 @@ impl EditorView {
             cx.notify();
             return;
         };
-        self.finish_region(rect);
+        self.finish_region(page_index, rect);
         cx.notify();
     }
 
-    fn finish_region(&mut self, rect: document_core::PdfRect) {
+    fn finish_region(&mut self, page_index: usize, rect: document_core::PdfRect) {
         match self.tool {
-            Tool::Select => self.select_fragments(rect),
-            Tool::Highlight => self.highlight_fragments(rect),
+            Tool::Select => self.select_fragments(page_index, rect),
+            Tool::Highlight => self.highlight_fragments(page_index, rect),
             Tool::Redact => {
-                self.edits.push(EditCommand::Redact {
-                    page_index: self.page_index,
-                    rect,
-                });
+                self.edits.push(EditCommand::Redact { page_index, rect });
                 self.status = "Redaction queued; Save As to apply".into();
             }
             Tool::Hand | Tool::AddText => {}
         }
     }
 
-    fn select_fragments(&mut self, rect: document_core::PdfRect) {
-        let selected: Vec<_> = self
+    fn select_fragments(&mut self, page_index: usize, rect: document_core::PdfRect) {
+        let Some(page) = self.pages.get(page_index) else {
+            return;
+        };
+        let selected: Vec<_> = page
             .fragments
             .iter()
             .filter(|fragment| fragment.rect.intersection(rect).is_some())
@@ -191,8 +285,11 @@ impl EditorView {
         self.status = format!("Selected {} text runs", selected.len()).into();
     }
 
-    fn highlight_fragments(&mut self, rect: document_core::PdfRect) {
-        let rects: Vec<_> = self
+    fn highlight_fragments(&mut self, page_index: usize, rect: document_core::PdfRect) {
+        let Some(page) = self.pages.get(page_index) else {
+            return;
+        };
+        let rects: Vec<_> = page
             .fragments
             .iter()
             .filter(|fragment| fragment.rect.intersection(rect).is_some())
@@ -204,7 +301,7 @@ impl EditorView {
         }
         self.selected_rects.clone_from(&rects);
         self.edits.push(EditCommand::Highlight {
-            page_index: self.page_index,
+            page_index,
             rects,
             color: self.highlight_color,
         });
@@ -222,7 +319,7 @@ impl EditorView {
             self.status = "Text cannot be empty".into();
         } else {
             self.edits.push(EditCommand::AddText(TextStamp {
-                page_index: self.page_index,
+                page_index: inline.page_index,
                 text,
                 x: inline.point.x,
                 y: inline.point.y,
@@ -233,11 +330,16 @@ impl EditorView {
         cx.notify();
     }
 
-    fn pdf_point(&self, position: gpui::Point<gpui::Pixels>) -> Option<document_core::PdfPoint> {
+    fn pdf_point(
+        &self,
+        page_index: usize,
+        position: gpui::Point<gpui::Pixels>,
+    ) -> Option<document_core::PdfPoint> {
+        let page = self.pages.get(page_index)?;
         page_point(
             position,
-            self.page_bounds.get(),
-            self.page_geometry?,
+            page.bounds.get(),
+            page.metadata.geometry,
             self.zoom,
         )
     }

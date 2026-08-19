@@ -5,6 +5,11 @@ use super::model::OverlayRect;
 
 pub const RENDER_SCALE: f64 = 1.5;
 
+pub fn page_raster_size(geometry: PageGeometry) -> (f32, f32) {
+    let (width, height) = transform(geometry, 1.0).viewport_size();
+    (ui_f32(width), ui_f32(height))
+}
+
 pub fn page_point(
     position: Point<Pixels>,
     bounds: Bounds<Pixels>,

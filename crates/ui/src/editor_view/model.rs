@@ -28,6 +28,7 @@ impl Tool {
 
 pub enum DragState {
     Region {
+        page_index: usize,
         start: PdfPoint,
         current: PdfPoint,
     },
@@ -39,7 +40,7 @@ pub enum DragState {
 
 impl DragState {
     pub fn rect(&self) -> Option<PdfRect> {
-        let Self::Region { start, current } = self else {
+        let Self::Region { start, current, .. } = self else {
             return None;
         };
         PdfRect::new(
@@ -53,6 +54,7 @@ impl DragState {
 }
 
 pub struct InlineText {
+    pub page_index: usize,
     pub point: PdfPoint,
     pub input: Entity<InputState>,
 }

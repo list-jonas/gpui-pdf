@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
-use gpui::{AppContext, Application, KeyBinding, Menu, MenuItem, SystemMenuType, WindowOptions};
-use gpui_component::Root;
+use gpui::{
+    AppContext, Application, KeyBinding, Menu, MenuItem, SystemMenuType, WindowOptions, px, size,
+};
+use gpui_component::{Root, Theme, ThemeMode, TitleBar};
 use ui::{
     ActualSize, AddTextTool, CommitText, EditorRequest, EditorView, FitPage, HandTool,
     HighlightTool, NextPage, OpenDocument, PreviousPage, RedactTool, SaveDocument, SelectTool,
@@ -33,6 +35,7 @@ pub fn run() {
     });
     application.run(move |cx| {
         gpui_component::init(cx);
+        Theme::change(ThemeMode::Dark, None, cx);
         cx.activate(true);
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.bind_keys([
@@ -56,7 +59,12 @@ pub fn run() {
         cx.set_menus(app_menus());
         let requests = request_sender.clone();
         let updates = update_receiver.clone();
-        cx.open_window(WindowOptions::default(), |window, cx| {
+        let window_options = WindowOptions {
+            titlebar: Some(TitleBar::title_bar_options()),
+            window_min_size: Some(size(px(900.0), px(620.0))),
+            ..WindowOptions::default()
+        };
+        cx.open_window(window_options, |window, cx| {
             let view = cx.new(|cx| EditorView::new(requests, updates, window, cx));
             cx.new(|cx| Root::new(view, window, cx))
         })

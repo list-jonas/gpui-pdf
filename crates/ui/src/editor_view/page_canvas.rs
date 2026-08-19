@@ -10,12 +10,12 @@ use pdf_engine::{EditCommand, FormFieldKind};
 
 use crate::EditorView;
 
-use super::geometry::{overlay_point, overlay_rect, raster_f32, ui_f32};
-use super::model::OverlayRect;
+use super::geometry::{overlay_point, overlay_rect, ui_f32};
+use super::model::{DragState, OverlayRect};
 
 impl EditorView {
     pub(super) fn render_document(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let Some(image) = self.image.clone() else {
+        if self.pages.is_empty() {
             return div()
                 .flex()
                 .flex_1()
@@ -24,53 +24,44 @@ impl EditorView {
                 .text_color(rgb(0x006b_7076))
                 .child("Open a PDF with Cmd+O or from Finder")
                 .into_any_element();
-        };
-        let width = raster_f32(self.image_size.0) * self.zoom;
-        let height = raster_f32(self.image_size.1) * self.zoom;
-        let page = self.render_page(image, width, height, cx);
+        }
+
         let mut scroll = div()
             .id("document-scroll")
             .flex()
+            .flex_col()
             .flex_1()
             .min_w_0()
             .min_h_0()
+            .items_center()
+            .gap_6()
+            .p_8()
             .overflow_scroll()
-            .track_scroll(&self.scroll);
+            .track_scroll(&self.scroll)
+            .on_scroll_wheel(cx.listener(Self::document_scroll_wheel))
+            .on_pinch(cx.listener(Self::document_pinch));
         scroll.style().allow_concurrent_scroll = Some(true);
+        for page_index in 0..self.pages.len() {
+            scroll = scroll.child(self.render_page(page_index, cx));
+        }
         scroll
             .vertical_scrollbar(&self.scroll)
             .horizontal_scrollbar(&self.scroll)
-            .child(
-                div()
-                    .flex()
-                    .w(px(width + 64.0))
-                    .h(px(height + 64.0))
-                    .min_w_full()
-                    .min_h_full()
-                    .p_8()
-                    .items_center()
-                    .justify_center()
-                    .child(page),
-            )
             .into_any_element()
     }
 
-    fn render_page(
-        &self,
-        image: std::sync::Arc<gpui::RenderImage>,
-        width: f32,
-        height: f32,
-        cx: &mut Context<Self>,
-    ) -> gpui::Div {
-        let bounds = self.page_bounds.clone();
-        let mut page = div()
+    fn render_page(&self, page_index: usize, cx: &mut Context<Self>) -> gpui::Div {
+        let page = &self.pages[page_index];
+        let width = page.image_size.0 * self.zoom;
+        let height = page.image_size.1 * self.zoom;
+        let bounds = page.bounds.clone();
+        let mut element = div()
             .relative()
             .w(px(width))
             .h(px(height))
             .flex_none()
             .bg(rgb(0x00ff_ffff))
             .shadow_xl()
-            .child(img(image).size_full())
             .child(
                 canvas(
                     move |page_bounds, _, _| bounds.set(page_bounds),
@@ -81,25 +72,47 @@ impl EditorView {
                 .left(px(0.0))
                 .size_full(),
             );
-        page = self.add_edit_overlays(page);
-        page = self.add_selection_overlays(page);
-        page = self.add_form_overlays(page, cx);
-        page = self.add_inline_text(page);
-        page.on_mouse_down(MouseButton::Left, cx.listener(Self::page_mouse_down))
+        if let Some(image) = page.image.clone() {
+            element = element.child(img(image).size_full());
+        } else {
+            element = element.child(
+                div()
+                    .flex()
+                    .size_full()
+                    .items_center()
+                    .justify_center()
+                    .text_color(rgb(0x0080_858b))
+                    .child(format!("Loading page {}…", page_index + 1)),
+            );
+        }
+        element = self.add_edit_overlays(element, page_index);
+        element = self.add_selection_overlays(element, page_index);
+        element = self.add_form_overlays(element, page_index, cx);
+        element = self.add_inline_text(element, page_index);
+        element
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |view, event, window, cx| {
+                    view.page_mouse_down(page_index, event, window, cx);
+                }),
+            )
             .on_mouse_move(cx.listener(Self::page_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::page_mouse_up))
     }
 
-    fn add_form_overlays(&self, mut page: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
-        let Some(geometry) = self.page_geometry else {
-            return page;
-        };
+    fn add_form_overlays(
+        &self,
+        mut page: gpui::Div,
+        page_index: usize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let geometry = self.pages[page_index].metadata.geometry;
         for (field_index, item) in self.forms.iter().enumerate() {
             for (widget_index, widget) in item
                 .field
                 .widgets
                 .iter()
-                .filter(|widget| widget.page_index == self.page_index)
+                .filter(|widget| widget.page_index == page_index)
                 .enumerate()
             {
                 let rect = overlay_rect(widget.rect, geometry, self.zoom);
@@ -131,15 +144,22 @@ impl EditorView {
         page
     }
 
-    fn add_selection_overlays(&self, mut page: gpui::Div) -> gpui::Div {
-        let Some(geometry) = self.page_geometry else {
+    fn add_selection_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
+        if page_index != self.page_index {
             return page;
-        };
+        }
+        let geometry = self.pages[page_index].metadata.geometry;
         for rect in &self.selected_rects {
             page = page
                 .child(positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x553b_82f6)));
         }
-        if let Some(rect) = self.drag.as_ref().and_then(super::model::DragState::rect) {
+        if let Some(DragState::Region {
+            page_index: drag_page,
+            ..
+        }) = &self.drag
+            && *drag_page == page_index
+            && let Some(rect) = self.drag.as_ref().and_then(DragState::rect)
+        {
             page = page.child(
                 positioned(overlay_rect(rect, geometry, self.zoom))
                     .border_2()
@@ -150,17 +170,15 @@ impl EditorView {
         page
     }
 
-    fn add_edit_overlays(&self, mut page: gpui::Div) -> gpui::Div {
-        let Some(geometry) = self.page_geometry else {
-            return page;
-        };
+    fn add_edit_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
+        let geometry = self.pages[page_index].metadata.geometry;
         for edit in &self.edits {
             match edit {
                 EditCommand::Highlight {
-                    page_index,
+                    page_index: target,
                     rects,
                     color,
-                } if *page_index == self.page_index => {
+                } if *target == page_index => {
                     for rect in rects {
                         page = page.child(
                             positioned(overlay_rect(*rect, geometry, self.zoom))
@@ -168,12 +186,15 @@ impl EditorView {
                         );
                     }
                 }
-                EditCommand::Redact { page_index, rect } if *page_index == self.page_index => {
+                EditCommand::Redact {
+                    page_index: target,
+                    rect,
+                } if *target == page_index => {
                     page = page.child(
                         positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0xcc11_1827)),
                     );
                 }
-                EditCommand::AddText(stamp) if stamp.page_index == self.page_index => {
+                EditCommand::AddText(stamp) if stamp.page_index == page_index => {
                     let (left, top) = overlay_point(
                         document_core::PdfPoint::new(stamp.x, stamp.y),
                         geometry,
@@ -195,10 +216,15 @@ impl EditorView {
         page
     }
 
-    fn add_inline_text(&self, page: gpui::Div) -> gpui::Div {
-        let (Some(geometry), Some(inline)) = (self.page_geometry, &self.inline_text) else {
+    fn add_inline_text(&self, page: gpui::Div, page_index: usize) -> gpui::Div {
+        let Some(inline) = self
+            .inline_text
+            .as_ref()
+            .filter(|inline| inline.page_index == page_index)
+        else {
             return page;
         };
+        let geometry = self.pages[page_index].metadata.geometry;
         let (left, top) = overlay_point(inline.point, geometry, self.zoom);
         page.child(
             div()

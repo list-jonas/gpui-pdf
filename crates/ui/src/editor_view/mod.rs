@@ -1,30 +1,28 @@
 mod document_io;
+mod document_page;
 mod edits;
 mod geometry;
+mod gestures;
 mod interaction;
 mod layout;
 mod model;
 mod page_canvas;
 mod properties;
 
-use std::cell::Cell;
 use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::Arc;
 
 use async_channel::{Receiver, Sender};
-use document_core::{PageGeometry, PdfRect};
-use gpui::{
-    AppContext, Bounds, Context, Entity, Pixels, RenderImage, ScrollHandle, SharedString, Window,
-};
+use document_core::PdfRect;
+use gpui::{AppContext, Context, Entity, ScrollHandle, SharedString, Window};
 use gpui_component::input::InputState;
-use pdf_engine::{EditCommand, FormField, TextFragment};
+use pdf_engine::{EditCommand, FormField};
 
 use crate::field_input::FieldInput;
 use crate::page_image::render_image;
 use crate::{EditorRequest, EditorUpdate};
 
 use self::document_io::file_name;
+use self::document_page::DocumentPage;
 use self::model::{DragState, InlineText, Tool};
 
 pub struct EditorView {
@@ -35,13 +33,11 @@ pub struct EditorView {
     status: SharedString,
     detail: Option<SharedString>,
     extracted_text: Option<SharedString>,
-    image: Option<Arc<RenderImage>>,
-    image_size: (u32, u32),
-    page_geometry: Option<PageGeometry>,
-    page_bounds: Rc<Cell<Bounds<Pixels>>>,
+    pdf_version: (u8, u8),
+    pages: Vec<DocumentPage>,
+    loaded_pages: usize,
     scroll: ScrollHandle,
     forms: Vec<FieldInput>,
-    fragments: Vec<TextFragment>,
     edits: Vec<EditCommand>,
     tool: Tool,
     zoom: f32,
@@ -79,13 +75,11 @@ impl EditorView {
             status: "Open a PDF to begin".into(),
             detail: None,
             extracted_text: None,
-            image: None,
-            image_size: (0, 0),
-            page_geometry: None,
-            page_bounds: Rc::new(Cell::new(Bounds::default())),
+            pdf_version: (0, 0),
+            pages: Vec::new(),
+            loaded_pages: 0,
             scroll: ScrollHandle::new(),
             forms: Vec::new(),
-            fragments: Vec::new(),
             edits: Vec::new(),
             tool: Tool::Select,
             zoom: 1.0,
@@ -99,47 +93,23 @@ impl EditorView {
 
     fn apply(&mut self, update: EditorUpdate, window: &mut Window, cx: &mut Context<Self>) {
         match update {
-            EditorUpdate::Loaded(loaded) => {
-                let crate::LoadedDocument {
+            EditorUpdate::Opened(opened) => {
+                let crate::OpenedDocument {
                     path,
                     document,
-                    page,
-                    rendered,
-                    text,
-                    fragments,
+                    pages,
                     forms,
-                } = *loaded;
+                    initial_page,
+                } = *opened;
                 self.path = Some(path.clone());
-                self.page_index = page.index;
+                self.page_index = initial_page;
                 self.page_count = document.page_count;
-                let marker = if self.edits.is_empty() {
-                    ""
-                } else {
-                    " · Edited"
-                };
-                self.status = format!(
-                    "{} · page {} of {}{marker}",
-                    file_name(&path),
-                    page.index + 1,
-                    document.page_count,
-                )
-                .into();
-                self.detail = Some(
-                    format!(
-                        "{:.0} × {:.0} pt · {}° · PDF {}.{}",
-                        page.geometry.crop_box.width(),
-                        page.geometry.crop_box.height(),
-                        page.geometry.rotation.degrees(),
-                        document.pdf_version.0,
-                        document.pdf_version.1
-                    )
-                    .into(),
-                );
-                self.extracted_text = Some(text.into());
-                self.image_size = (rendered.width, rendered.height);
-                self.image = render_image(rendered);
-                self.page_geometry = Some(page.geometry);
-                self.fragments = fragments;
+                self.pdf_version = document.pdf_version;
+                self.pages = pages.into_iter().map(DocumentPage::placeholder).collect();
+                self.loaded_pages = 0;
+                self.status = format!("Loading {} pages…", document.page_count).into();
+                self.detail = None;
+                self.extracted_text = None;
                 self.drag = None;
                 self.selected_rects.clear();
                 self.inline_text = None;
@@ -153,6 +123,25 @@ impl EditorView {
                         }
                     })
                     .collect();
+                self.scroll.scroll_to_top_of_item(initial_page);
+                self.refresh_active_page();
+            }
+            EditorUpdate::PageLoaded(loaded) => {
+                let crate::LoadedPage {
+                    page,
+                    rendered,
+                    text,
+                    fragments,
+                } = *loaded;
+                let image_size = (rendered.width, rendered.height);
+                if let Some(target) = self.pages.get_mut(page.index) {
+                    let was_loaded = target.image.is_some();
+                    target.load(render_image(rendered), image_size, text, fragments);
+                    if !was_loaded {
+                        self.loaded_pages += 1;
+                    }
+                }
+                self.refresh_active_page();
             }
             EditorUpdate::Saved(path) => {
                 self.edits.clear();
@@ -164,6 +153,38 @@ impl EditorView {
             }
         }
         cx.notify();
+    }
+
+    fn refresh_active_page(&mut self) {
+        let Some(page) = self.pages.get(self.page_index) else {
+            return;
+        };
+        let marker = if self.edits.is_empty() {
+            ""
+        } else {
+            " · Edited"
+        };
+        let name = self.path.as_deref().map_or_else(|| "PDF".into(), file_name);
+        self.status = format!(
+            "{name} · page {} of {} · loaded {}/{}{marker}",
+            self.page_index + 1,
+            self.page_count,
+            self.loaded_pages,
+            self.page_count,
+        )
+        .into();
+        self.detail = Some(
+            format!(
+                "{:.0} × {:.0} pt · {}° · PDF {}.{}",
+                page.metadata.geometry.crop_box.width(),
+                page.metadata.geometry.crop_box.height(),
+                page.metadata.geometry.rotation.degrees(),
+                self.pdf_version.0,
+                self.pdf_version.1
+            )
+            .into(),
+        );
+        self.extracted_text = (!page.text.is_empty()).then(|| page.text.clone());
     }
 
     fn pending_form_value(&self, field: &FormField) -> String {

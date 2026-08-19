@@ -6,14 +6,13 @@ use async_channel::{Receiver, Sender};
 use pdf_engine::{DocumentMetadata, OpenRequest, PageMetadata, RenderRequest, RenderedPage};
 use pdf_engine_zpdf::ZpdfEngine;
 use rendering::{DocumentCommand, DocumentEvent, DocumentWorker};
-use ui::{EditorRequest, EditorUpdate, LoadedDocument};
+use ui::{EditorRequest, EditorUpdate, LoadedPage, OpenedDocument};
 
 pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
     std::thread::spawn(move || {
         while let Ok(request) = requests.recv_blocking() {
             let result = match request {
                 EditorRequest::Open(path) => load(&path, 0, &updates),
-                EditorRequest::LoadPage { path, page_index } => load(&path, page_index, &updates),
                 EditorRequest::SaveAs {
                     source,
                     destination,
@@ -32,14 +31,54 @@ fn load(path: &Path, page_index: usize, updates: &Sender<EditorUpdate>) -> Resul
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let worker = DocumentWorker::spawn(Arc::new(ZpdfEngine), OpenRequest::new(bytes));
     let document = expect_opened(receive(&worker)?)?;
-    if page_index >= document.page_count {
+    let page_count = document.page_count;
+    if page_index >= page_count {
         return Err(format!("page {} does not exist", page_index + 1));
     }
 
+    let pages = load_page_metadata(&worker, page_count)?;
     worker
-        .send(DocumentCommand::PageMetadata { page_index })
+        .send(DocumentCommand::FormFields)
         .map_err(|error| error.to_string())?;
-    let page = expect_page_metadata(receive(&worker)?)?;
+    let forms = expect_forms(receive(&worker)?)?;
+
+    updates
+        .send_blocking(EditorUpdate::Opened(Box::new(OpenedDocument {
+            path: path.to_path_buf(),
+            document,
+            pages: pages.clone(),
+            forms,
+            initial_page: page_index,
+        })))
+        .map_err(|error| error.to_string())?;
+
+    for index in page_load_order(page_index, page_count) {
+        let page = load_page(&worker, pages[index])?;
+        updates
+            .send_blocking(EditorUpdate::PageLoaded(Box::new(page)))
+            .map_err(|error| error.to_string())?;
+    }
+    worker
+        .shutdown()
+        .map_err(|_| "document worker panicked during shutdown".to_owned())
+}
+
+fn load_page_metadata(
+    worker: &DocumentWorker,
+    page_count: usize,
+) -> Result<Vec<PageMetadata>, String> {
+    (0..page_count)
+        .map(|page_index| {
+            worker
+                .send(DocumentCommand::PageMetadata { page_index })
+                .map_err(|error| error.to_string())?;
+            expect_page_metadata(receive(worker)?)
+        })
+        .collect()
+}
+
+fn load_page(worker: &DocumentWorker, page: PageMetadata) -> Result<LoadedPage, String> {
+    let page_index = page.index;
     worker
         .send(DocumentCommand::Render {
             request: RenderRequest {
@@ -49,34 +88,25 @@ fn load(path: &Path, page_index: usize, updates: &Sender<EditorUpdate>) -> Resul
             generation: worker.current_generation(),
         })
         .map_err(|error| error.to_string())?;
-    let rendered = expect_rendered(receive(&worker)?)?;
+    let rendered = expect_rendered(receive(worker)?)?;
     worker
         .send(DocumentCommand::ExtractText { page_index })
         .map_err(|error| error.to_string())?;
-    let text = expect_text(receive(&worker)?)?;
-    worker
-        .send(DocumentCommand::FormFields)
-        .map_err(|error| error.to_string())?;
-    let forms = expect_forms(receive(&worker)?)?;
+    let text = expect_text(receive(worker)?)?;
     worker
         .send(DocumentCommand::TextFragments { page_index })
         .map_err(|error| error.to_string())?;
-    let fragments = expect_fragments(receive(&worker)?)?;
-    worker
-        .shutdown()
-        .map_err(|_| "document worker panicked during shutdown".to_owned())?;
+    let fragments = expect_fragments(receive(worker)?)?;
+    Ok(LoadedPage {
+        page,
+        rendered,
+        text,
+        fragments,
+    })
+}
 
-    updates
-        .send_blocking(EditorUpdate::Loaded(Box::new(LoadedDocument {
-            path: path.to_path_buf(),
-            document,
-            page,
-            rendered,
-            text,
-            fragments,
-            forms,
-        })))
-        .map_err(|error| error.to_string())
+fn page_load_order(initial_page: usize, page_count: usize) -> impl Iterator<Item = usize> {
+    (initial_page..page_count).chain(0..initial_page)
 }
 
 fn save(
@@ -170,19 +200,86 @@ fn expect_exported(event: DocumentEvent) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pdf_engine::PdfEngine;
 
     #[test]
     fn opens_fixture_and_sends_loaded_update() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("sample.pdf");
         std::fs::write(&path, test_support::form_pdf()).unwrap();
-        let (sender, receiver) = async_channel::bounded(2);
+        let (sender, receiver) = async_channel::unbounded();
 
         load(&path, 0, &sender).unwrap();
 
         assert!(matches!(
             receiver.recv_blocking().unwrap(),
-            EditorUpdate::Loaded(loaded) if loaded.forms.len() == 3
+            EditorUpdate::Opened(opened) if opened.forms.len() == 3 && opened.pages.len() == 1
+        ));
+        assert!(matches!(
+            receiver.recv_blocking().unwrap(),
+            EditorUpdate::PageLoaded(page) if page.page.index == 0
+        ));
+    }
+
+    #[test]
+    fn engine_iterates_and_renders_every_fixture_page() {
+        let mut document = ZpdfEngine
+            .open(OpenRequest::new(test_support::multi_page_pdf()))
+            .unwrap();
+
+        assert_eq!(
+            document.metadata().page_count,
+            test_support::MULTI_PAGE_COUNT
+        );
+
+        for page_index in 0..document.metadata().page_count {
+            assert_eq!(
+                document.page_metadata(page_index).unwrap().index,
+                page_index
+            );
+            assert!(
+                document
+                    .render_page(RenderRequest {
+                        page_index,
+                        scale: 1.0,
+                    })
+                    .unwrap()
+                    .is_valid()
+            );
+        }
+    }
+
+    #[test]
+    fn session_loads_every_fixture_page() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("multi-page.pdf");
+        std::fs::write(&path, test_support::multi_page_pdf()).unwrap();
+
+        let (sender, receiver) = async_channel::unbounded();
+        load(&path, 1, &sender).unwrap();
+
+        assert!(matches!(
+            receiver.recv_blocking().unwrap(),
+            EditorUpdate::Opened(opened)
+                if opened.pages.len() == test_support::MULTI_PAGE_COUNT
+                    && opened.initial_page == 1
+        ));
+        let pages: Vec<_> = (0..test_support::MULTI_PAGE_COUNT)
+            .map(|_| receiver.recv_blocking().unwrap())
+            .collect();
+        assert_eq!(
+            pages
+                .iter()
+                .filter(|update| matches!(update, EditorUpdate::PageLoaded(_)))
+                .count(),
+            test_support::MULTI_PAGE_COUNT
+        );
+        assert!(matches!(
+            &pages[0],
+            EditorUpdate::PageLoaded(page)
+                if page.page.index == 1
+                    && page.rendered.is_valid()
+                    && page.text.contains("Fixture page 2")
         ));
     }
 }
