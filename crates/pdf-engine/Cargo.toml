@@ -1,0 +1,13 @@
+[package]
+name = "pdf-engine"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+document-core = { path = "../document-core" }
+
+[lints]
+workspace = true
+

@@ -1,0 +1,15 @@
+[package]
+name = "rendering"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[dependencies]
+pdf-engine = { path = "../pdf-engine" }
+
+[dev-dependencies]
+document-core = { path = "../document-core" }
+
+[lints]
+workspace = true
