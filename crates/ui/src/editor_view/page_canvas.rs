@@ -40,6 +40,7 @@ impl EditorView {
             .horizontal_scrollbar(&self.scroll)
             .child(
                 div()
+                    .flex()
                     .min_w_full()
                     .min_h_full()
                     .p_8()
@@ -152,12 +153,14 @@ impl EditorView {
         for edit in &self.edits {
             match edit {
                 EditCommand::Highlight {
-                    page_index, rects, ..
+                    page_index,
+                    rects,
+                    color,
                 } if *page_index == self.page_index => {
                     for rect in rects {
                         page = page.child(
                             positioned(overlay_rect(*rect, geometry, self.zoom))
-                                .bg(rgba(0x66ff_dc33)),
+                                .bg(highlight_preview(*color)),
                         );
                     }
                 }
@@ -229,4 +232,14 @@ fn positioned(rect: OverlayRect) -> gpui::Div {
         .top(px(rect.top))
         .w(px(rect.width.max(1.0)))
         .h(px(rect.height.max(1.0)))
+}
+
+fn highlight_preview(color: (f64, f64, f64)) -> gpui::Rgba {
+    if color.0 < 0.5 {
+        rgba(0x6678_d98b)
+    } else if color.1 < 0.6 {
+        rgba(0x66ff_7bab)
+    } else {
+        rgba(0x66ff_dc33)
+    }
 }

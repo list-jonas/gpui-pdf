@@ -52,3 +52,22 @@ fn transform(geometry: PageGeometry, zoom: f32) -> ViewportTransform {
     ViewportTransform::new(geometry, f64::from(zoom), RENDER_SCALE)
         .expect("validated viewport scale")
 }
+
+#[cfg(test)]
+mod tests {
+    use document_core::{PageGeometry, PdfRect, Rotation};
+
+    use super::*;
+
+    #[test]
+    fn page_rect_maps_to_raster_overlay() {
+        let page = PdfRect::new(0.0, 0.0, 200.0, 100.0).unwrap();
+        let geometry = PageGeometry::new(page, page, Rotation::None, 1.0).unwrap();
+        let overlay = overlay_rect(PdfRect::new(20.0, 30.0, 80.0, 50.0).unwrap(), geometry, 2.0);
+
+        assert!((overlay.left - 60.0).abs() < f32::EPSILON);
+        assert!((overlay.top - 150.0).abs() < f32::EPSILON);
+        assert!((overlay.width - 180.0).abs() < f32::EPSILON);
+        assert!((overlay.height - 60.0).abs() < f32::EPSILON);
+    }
+}
