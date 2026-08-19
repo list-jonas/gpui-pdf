@@ -28,19 +28,23 @@ impl EditorView {
         let width = raster_f32(self.image_size.0) * self.zoom;
         let height = raster_f32(self.image_size.1) * self.zoom;
         let page = self.render_page(image, width, height, cx);
-        div()
+        let mut scroll = div()
             .id("document-scroll")
             .flex()
             .flex_1()
             .min_w_0()
             .min_h_0()
             .overflow_scroll()
-            .track_scroll(&self.scroll)
+            .track_scroll(&self.scroll);
+        scroll.style().allow_concurrent_scroll = Some(true);
+        scroll
             .vertical_scrollbar(&self.scroll)
             .horizontal_scrollbar(&self.scroll)
             .child(
                 div()
                     .flex()
+                    .w(px(width + 64.0))
+                    .h(px(height + 64.0))
                     .min_w_full()
                     .min_h_full()
                     .p_8()
