@@ -37,6 +37,23 @@ impl Tool {
             Self::Redact => "Redact",
         }
     }
+
+    /// Keyboard shortcut shown next to the tool name.
+    pub const fn shortcut(self) -> &'static str {
+        match self {
+            Self::Select => "V",
+            Self::Edit => "E",
+            Self::Hand => "H",
+            Self::Highlight => "U",
+            Self::Underline => "L",
+            Self::Strikeout => "K",
+            Self::AddText => "T",
+            Self::Note => "N",
+            Self::Signature => "S",
+            Self::Shape => "G",
+            Self::Redact => "R",
+        }
+    }
 }
 
 pub enum DragState {

@@ -1094,7 +1094,7 @@ mod tests {
     use document_core::{PdfPoint, PdfRect};
     use pdf_engine::TextFragment;
 
-    use super::text_selection;
+    use super::{MAX_ZOOM, MIN_ZOOM, next_zoom_step, text_selection};
 
     #[test]
     fn text_selection_preserves_complete_fragment_text() {
@@ -1123,5 +1123,36 @@ mod tests {
             "Hello world"
         );
         assert_eq!(selected.len(), 2);
+    }
+
+    #[test]
+    fn zoom_steps_move_between_presets_and_stop_at_limits() {
+        assert!((next_zoom_step(1.0, true) - 1.25).abs() < f32::EPSILON);
+        assert!((next_zoom_step(1.0, false) - 0.75).abs() < f32::EPSILON);
+        assert!((next_zoom_step(0.4, true) - 0.5).abs() < f32::EPSILON);
+        assert!((next_zoom_step(MAX_ZOOM, true) - MAX_ZOOM).abs() < f32::EPSILON);
+        assert!((next_zoom_step(MIN_ZOOM, false) - MIN_ZOOM).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn clicking_far_from_text_selects_nothing() {
+        let fragments = vec![TextFragment {
+            text: "Hello".into(),
+            rect: PdfRect::new(0.0, 0.0, 50.0, 10.0).unwrap(),
+        }];
+
+        let far = text_selection(
+            &fragments,
+            PdfPoint::new(0.0, 600.0),
+            PdfPoint::new(10.0, 600.0),
+        );
+        assert!(far.is_empty());
+
+        let near = text_selection(
+            &fragments,
+            PdfPoint::new(5.0, 5.0),
+            PdfPoint::new(40.0, 5.0),
+        );
+        assert_eq!(near.len(), 1);
     }
 }

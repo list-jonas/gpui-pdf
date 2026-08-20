@@ -19,10 +19,17 @@ impl EditorView {
             return div()
                 .flex()
                 .flex_1()
+                .flex_col()
                 .items_center()
                 .justify_center()
-                .text_color(rgb(0x006b_7076))
-                .child("Open a PDF with Cmd+O or from Finder")
+                .gap_2()
+                .child(div().text_color(rgb(0x00c5_cbd3)).child("No document open"))
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(rgb(0x006b_7076))
+                        .child("Press Cmd+O, or open a PDF from Finder"),
+                )
                 .into_any_element();
         }
 
@@ -144,9 +151,31 @@ impl EditorView {
                         ),
                     );
                 } else {
-                    page = page.child(positioned(rect).child(Input::new(&item.input).disabled(
-                        item.field.read_only || item.field.kind == FormFieldKind::Signature,
-                    )));
+                    let disabled =
+                        item.field.read_only || item.field.kind == FormFieldKind::Signature;
+                    // Field text has to scale with the page, otherwise values
+                    // overflow their widget rect at anything but 100% zoom.
+                    let font_size = (rect.height * 0.6).clamp(6.0, 40.0);
+                    page = page.child(
+                        positioned(rect)
+                            .rounded_sm()
+                            .bg(if disabled {
+                                rgba(0x9ca3_ad1a)
+                            } else {
+                                rgba(0x4e9c_ff2e)
+                            })
+                            .child(
+                                Input::new(&item.input)
+                                    .disabled(disabled)
+                                    .with_size(Size::Size(px(font_size / 0.875)))
+                                    .size_full()
+                                    .appearance(false)
+                                    .bordered(false)
+                                    .focus_bordered(false)
+                                    .text_color(rgb(0x0011_1827))
+                                    .text_size(px(font_size)),
+                            ),
+                    );
                 }
             }
         }
@@ -154,13 +183,13 @@ impl EditorView {
     }
 
     fn add_selection_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
-        if page_index != self.page_index {
-            return page;
-        }
         let geometry = self.pages[page_index].metadata.geometry;
-        for rect in &self.selected_rects {
-            page = page
-                .child(positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)));
+        if page_index == self.page_index {
+            for rect in &self.selected_rects {
+                page = page.child(
+                    positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)),
+                );
+            }
         }
         if let Some(DragState::Region {
             page_index: drag_page,
@@ -180,7 +209,7 @@ impl EditorView {
                 positioned(overlay_rect(rect, geometry, self.zoom))
                     .border_2()
                     .border_color(rgb(0x003b_82f6))
-                    .bg(rgba(0x223b_82f6)),
+                    .bg(rgba(0x3b82_f622)),
             );
         }
         page
@@ -229,7 +258,7 @@ impl EditorView {
                     rect,
                 } if *target == page_index => {
                     page = page.child(
-                        positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0xcc11_1827)),
+                        positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x1118_27cc)),
                     );
                 }
                 EditCommand::Underline {
@@ -277,19 +306,20 @@ impl EditorView {
                 } if *target == page_index => {
                     let (left, top) =
                         overlay_point(document_core::PdfPoint::new(*x, *y), geometry, self.zoom);
+                    let scale = ui_f32(RENDER_SCALE) * self.zoom;
                     page = page.child(
                         div()
                             .absolute()
                             .left(px(left))
-                            .top(px(top - 72.0))
-                            .w(px(160.0))
-                            .h(px(72.0))
-                            .p_2()
+                            .top(px(top - 72.0 * scale))
+                            .w(px(160.0 * scale))
+                            .h(px(72.0 * scale))
+                            .p(px(4.0 * scale))
                             .rounded_md()
                             .border_1()
                             .border_color(rgb(color_to_u32(*color)))
                             .bg(rgb(0x00ff_f8dc))
-                            .text_sm()
+                            .text_size(px(display_text_size(9.0, self.zoom)))
                             .text_color(rgb(0x001f_2937))
                             .flex()
                             .items_start()

@@ -466,7 +466,7 @@ impl EditorView {
                     .rounded_xl()
                     .border_1()
                     .border_color(rgb(0x0030_343b))
-                    .bg(rgba(0xf2_191d23))
+                    .bg(rgba(0x191d_23f2))
                     .shadow_xl()
                     .text_color(rgb(0x00f3_f4f6))
                     .child(

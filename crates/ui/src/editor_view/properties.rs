@@ -1,13 +1,17 @@
 use gpui::{
     Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, rgb,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, rgb,
 };
-use gpui_component::button::Button;
+use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::scroll::ScrollableElement;
 
 use super::model::{Tool, shape_label};
 use crate::EditorView;
-use pdf_engine::ShapeKind;
+use pdf_engine::{EditCommand, ShapeKind};
+
+const SURFACE: u32 = 0x0011_1418;
+const BORDER: u32 = 0x0025_292f;
+const TEXT_MUTED: u32 = 0x009c_a3ad;
 
 impl EditorView {
     pub(super) fn render_properties(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -19,35 +23,87 @@ impl EditorView {
             .flex()
             .flex_col()
             .gap_4()
-            .bg(rgb(0x0011_1418))
+            .bg(rgb(SURFACE))
             .border_l_1()
-            .border_color(rgb(0x0025_292f))
+            .border_color(rgb(BORDER))
             .child(
                 div()
-                    .text_lg()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child("Properties"),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(rgb(0x009c_a3ad))
-                    .child(format!("{} tool", self.tool.label())),
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(self.tool.label()),
+                    )
+                    .child(
+                        div()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .bg(rgb(0x001c_2026))
+                            .text_xs()
+                            .text_color(rgb(TEXT_MUTED))
+                            .child(self.tool.shortcut()),
+                    ),
             );
 
         self.add_tool_properties(panel, cx)
+            .child(self.render_edit_list(cx))
             .when_some(self.detail.clone(), |panel, detail| {
                 panel.child(
                     div()
                         .pt_4()
                         .border_t_1()
-                        .border_color(rgb(0x0025_292f))
+                        .border_color(rgb(BORDER))
                         .text_xs()
-                        .text_color(rgb(0x009c_a3ad))
+                        .text_color(rgb(TEXT_MUTED))
                         .child(detail),
                 )
             })
             .overflow_y_scrollbar()
+    }
+
+    /// Lists queued edits so users can see and remove pending changes.
+    fn render_edit_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let mut list = div().flex().flex_col().gap_2().pt_3().border_t_1();
+        list = list.border_color(rgb(BORDER)).child(
+            div()
+                .text_xs()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(rgb(TEXT_MUTED))
+                .child(if self.history.is_empty() {
+                    "NO PENDING EDITS".to_owned()
+                } else {
+                    format!("PENDING EDITS ({})", self.history.len())
+                }),
+        );
+
+        for (index, edit) in self.history.iter().enumerate().take(12) {
+            list = list.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .bg(rgb(0x001c_2026))
+                    .text_xs()
+                    .child(div().flex_1().truncate().child(edit_label(edit)))
+                    .child(
+                        Button::new(("remove-edit", index))
+                            .label("✕")
+                            .ghost()
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                view.history.remove(index);
+                                view.mark_edited(window, cx);
+                            })),
+                    ),
+            );
+        }
+        list.min_h(px(0.0))
     }
 
     #[allow(clippy::too_many_lines)]
@@ -218,5 +274,20 @@ impl EditorView {
         Button::new(id)
             .label(label)
             .on_click(cx.listener(move |view, _, _, cx| view.set_shape_kind(kind, cx)))
+    }
+}
+
+fn edit_label(edit: &EditCommand) -> String {
+    match edit {
+        EditCommand::Highlight { page_index, .. } => format!("Highlight · page {}", page_index + 1),
+        EditCommand::Underline { page_index, .. } => format!("Underline · page {}", page_index + 1),
+        EditCommand::StrikeOut { page_index, .. } => format!("Strikeout · page {}", page_index + 1),
+        EditCommand::Redact { page_index, .. } => format!("Redaction · page {}", page_index + 1),
+        EditCommand::Shape { page_index, .. } => format!("Shape · page {}", page_index + 1),
+        EditCommand::Note { page_index, .. } => format!("Comment · page {}", page_index + 1),
+        EditCommand::AddText(stamp) => {
+            format!("Text · page {}", stamp.page_index + 1)
+        }
+        EditCommand::FillForm { name, .. } => format!("Form · {name}"),
     }
 }

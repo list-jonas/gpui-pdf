@@ -1,5 +1,8 @@
 const DOCUMENT_PADDING: f32 = 64.0;
 const PAGE_GAP: f32 = 24.0;
+/// Must match the zoom range enforced by the editor actions.
+const MIN_ZOOM: f32 = 0.25;
+const MAX_ZOOM: f32 = 8.0;
 
 #[derive(Clone, Copy)]
 pub(super) struct DocumentMetrics {
@@ -22,7 +25,7 @@ pub(super) struct AnchorContext {
 }
 
 pub(super) fn pinch_zoom(zoom: f32, delta: f32) -> f32 {
-    (zoom * (1.0 + delta.clamp(-0.5, 0.5))).clamp(0.25, 4.0)
+    (zoom * (1.0 + delta.clamp(-0.5, 0.5))).clamp(MIN_ZOOM, MAX_ZOOM)
 }
 
 pub(super) fn anchored_document_offset(
