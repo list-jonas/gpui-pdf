@@ -688,7 +688,9 @@ impl EditorView {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Rendering is the one place every page change funnels through.
+        self.sync_page_input(window, cx);
         div()
             .key_context("PdfEditor")
             .track_focus(&self.focus_handle)

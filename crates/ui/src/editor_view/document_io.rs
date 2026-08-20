@@ -135,14 +135,12 @@ impl EditorView {
     ) {
         if !self.input_has_focus(window, cx) && self.page_index > 0 {
             self.jump_to_page(self.page_index - 1, cx);
-            self.sync_page_input(window, cx);
         }
     }
 
     pub(super) fn next_page(&mut self, _: &NextPage, window: &mut Window, cx: &mut Context<Self>) {
         if !self.input_has_focus(window, cx) && self.page_index + 1 < self.page_count {
             self.jump_to_page(self.page_index + 1, cx);
-            self.sync_page_input(window, cx);
         }
     }
 
@@ -154,14 +152,12 @@ impl EditorView {
     ) {
         if !self.input_has_focus(window, cx) {
             self.jump_to_page(0, cx);
-            self.sync_page_input(window, cx);
         }
     }
 
     pub(super) fn last_page(&mut self, _: &LastPage, window: &mut Window, cx: &mut Context<Self>) {
         if !self.input_has_focus(window, cx) && self.page_count > 0 {
             self.jump_to_page(self.page_count - 1, cx);
-            self.sync_page_input(window, cx);
         }
     }
 

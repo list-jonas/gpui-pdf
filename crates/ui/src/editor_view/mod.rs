@@ -108,8 +108,9 @@ impl EditorView {
         .detach();
 
         let search_input = input("Search", "", window, cx);
-        let search_subscription = cx.observe(&search_input, |view, _, cx| {
+        let search_subscription = cx.observe_in(&search_input, window, |view, _, window, cx| {
             view.refresh_search(cx, false);
+            view.sync_page_input(window, cx);
         });
         let search_enter = cx.subscribe_in(
             &search_input,
@@ -377,7 +378,9 @@ impl EditorView {
             .unwrap_or_else(|| field.value.clone())
     }
 
-    /// Keeps the page box in sync with the current page unless the user is typing in it.
+    /// Keeps the page box in sync with the current page unless the user is
+    /// typing in it. Called from render, so every path that changes the page
+    /// updates the field, including ones without a `Window` at hand.
     pub(super) fn sync_page_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         use gpui::Focusable;
         if self.page_input.focus_handle(cx).is_focused(window) {
@@ -388,6 +391,9 @@ impl EditorView {
         } else {
             (self.page_index + 1).to_string()
         };
+        if self.page_input.read(cx).value() == value.as_str() {
+            return;
+        }
         self.page_input
             .update(cx, |input, cx| input.set_value(value, window, cx));
     }

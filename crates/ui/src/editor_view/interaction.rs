@@ -443,7 +443,7 @@ impl EditorView {
     pub(super) fn document_scroll_wheel(
         &mut self,
         event: &ScrollWheelEvent,
-        window: &mut Window,
+        _: &mut Window,
         cx: &mut Context<Self>,
     ) {
         // Cmd + wheel is the conventional zoom gesture on a mouse.
@@ -455,7 +455,6 @@ impl EditorView {
         }
         self.sync_current_page_from_scroll();
         self.refresh_active_page();
-        self.sync_page_input(window, cx);
         self.request_visible_pages();
         cx.notify();
     }

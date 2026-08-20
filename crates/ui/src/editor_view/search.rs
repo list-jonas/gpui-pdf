@@ -33,19 +33,19 @@ impl EditorView {
     pub(super) fn next_search_result(
         &mut self,
         _: &NextSearchResult,
-        window: &mut Window,
+        _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_search_result(1, window, cx);
+        self.move_search_result(1, cx);
     }
 
     pub(super) fn previous_search_result(
         &mut self,
         _: &PreviousSearchResult,
-        window: &mut Window,
+        _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_search_result(-1, window, cx);
+        self.move_search_result(-1, cx);
     }
 
     pub(super) fn refresh_search(&mut self, cx: &mut Context<Self>, force: bool) {
@@ -77,12 +77,7 @@ impl EditorView {
         cx.notify();
     }
 
-    fn move_search_result(
-        &mut self,
-        direction: isize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn move_search_result(&mut self, direction: isize, cx: &mut Context<Self>) {
         self.refresh_search(cx, false);
         if self.search_matches.is_empty() {
             let message = if self.search_query.is_empty() {
@@ -102,7 +97,6 @@ impl EditorView {
         };
         let result = self.search_matches[self.search_index];
         self.jump_to_page(result.page_index, cx);
-        self.sync_page_input(window, cx);
         self.flash(
             format!(
                 "Result {} of {}",
