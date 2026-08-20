@@ -8,12 +8,15 @@ mod layout;
 mod model;
 mod page_canvas;
 mod properties;
+mod search;
 
 use std::path::PathBuf;
 
 use async_channel::{Receiver, Sender};
 use document_core::PdfRect;
-use gpui::{AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Window};
+use gpui::{
+    AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Window,
+};
 use gpui_component::input::InputState;
 use pdf_engine::{EditCommand, FormField};
 
@@ -23,7 +26,7 @@ use crate::{EditorRequest, EditorUpdate};
 
 use self::document_io::file_name;
 use self::document_page::DocumentPage;
-use self::model::{DragState, InlineText, Tool};
+use self::model::{DragState, InlineText, SearchMatch, Tool};
 
 pub struct EditorView {
     requests: Sender<EditorRequest>,
@@ -47,6 +50,11 @@ pub struct EditorView {
     selected_text: SharedString,
     inline_text: Option<InlineText>,
     highlight_color: (f64, f64, f64),
+    search_input: Entity<InputState>,
+    _search_subscription: Subscription,
+    search_query: String,
+    search_matches: Vec<SearchMatch>,
+    search_index: usize,
 }
 
 impl EditorView {
@@ -70,6 +78,11 @@ impl EditorView {
         })
         .detach();
 
+        let search_input = input("Search", "", window, cx);
+        let search_subscription = cx.observe(&search_input, |view, _, cx| {
+            view.refresh_search(cx, false);
+        });
+
         Self {
             requests,
             path: None,
@@ -92,6 +105,11 @@ impl EditorView {
             selected_text: "No text selected".into(),
             inline_text: None,
             highlight_color: (1.0, 0.86, 0.2),
+            search_input,
+            _search_subscription: search_subscription,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+            search_index: 0,
         }
     }
 
@@ -117,6 +135,11 @@ impl EditorView {
                 self.drag = None;
                 self.selected_rects.clear();
                 self.inline_text = None;
+                self.search_query.clear();
+                self.search_matches.clear();
+                self.search_index = 0;
+                self.search_input
+                    .update(cx, |input, cx| input.set_value("", window, cx));
                 self.forms = forms
                     .into_iter()
                     .map(|field| {
@@ -145,6 +168,7 @@ impl EditorView {
                         self.loaded_pages += 1;
                     }
                 }
+                self.refresh_search(cx, true);
                 self.refresh_active_page();
             }
             EditorUpdate::Saved(path) => {

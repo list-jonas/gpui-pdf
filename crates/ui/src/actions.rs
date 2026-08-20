@@ -17,6 +17,9 @@ actions!(
         ActualSize,
         FitPage,
         CommitText,
-        CopySelection
+        CopySelection,
+        Search,
+        NextSearchResult,
+        PreviousSearchResult
     ]
 );

@@ -3,13 +3,15 @@ use gpui::{
     StatefulInteractiveElement, Styled, Window, div, img, prelude::FluentBuilder, px, rgb,
 };
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::input::Input;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{Disableable, Icon, TitleBar};
 
 use crate::EditorView;
 use crate::actions::{
-    AddTextTool, FitPage, HandTool, HighlightTool, NextPage, OpenDocument, PreviousPage,
-    RedactTool, SaveDocument, SelectTool, ZoomIn, ZoomOut,
+    AddTextTool, FitPage, HandTool, HighlightTool, NextPage, NextSearchResult, OpenDocument,
+    PreviousPage, PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool, ZoomIn,
+    ZoomOut,
 };
 use crate::icons::HugeIcon;
 
@@ -89,7 +91,42 @@ impl EditorView {
                             .text_sm()
                             .text_color(rgb(0x008c_939d))
                             .child(Icon::new(HugeIcon::Search).size_4())
-                            .child("Search"),
+                            .child(
+                                div().flex_1().child(
+                                    Input::new(&self.search_input)
+                                        .appearance(false)
+                                        .bordered(false)
+                                        .focus_bordered(false),
+                                ),
+                            )
+                            .child(
+                                Button::new("search-previous")
+                                    .icon(HugeIcon::Previous)
+                                    .ghost()
+                                    .tooltip("Previous result")
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.previous_search_result(
+                                            &PreviousSearchResult,
+                                            window,
+                                            cx,
+                                        );
+                                    })),
+                            )
+                            .child(
+                                Button::new("search-next")
+                                    .icon(HugeIcon::Next)
+                                    .ghost()
+                                    .tooltip("Next result")
+                                    .on_click(cx.listener(|view, _, window, cx| {
+                                        view.next_search_result(&NextSearchResult, window, cx);
+                                    })),
+                            )
+                            .on_mouse_down(
+                                gpui::MouseButton::Left,
+                                cx.listener(|view, _, window, cx| {
+                                    view.open_search(&Search, window, cx);
+                                }),
+                            ),
                     )
                     .child(
                         Button::new("open")
@@ -446,6 +483,9 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::zoom_in))
             .on_action(cx.listener(Self::zoom_out))
             .on_action(cx.listener(Self::copy_selection))
+            .on_action(cx.listener(Self::open_search))
+            .on_action(cx.listener(Self::next_search_result))
+            .on_action(cx.listener(Self::previous_search_result))
             .on_action(cx.listener(Self::actual_size))
             .on_action(cx.listener(Self::fit_page))
             .on_action(cx.listener(Self::commit_text))

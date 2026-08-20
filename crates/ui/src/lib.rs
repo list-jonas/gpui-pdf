@@ -7,7 +7,8 @@ mod protocol;
 
 pub use actions::{
     ActualSize, AddTextTool, CommitText, CopySelection, FitPage, HandTool, HighlightTool, NextPage,
-    OpenDocument, PreviousPage, RedactTool, SaveDocument, SelectTool, ZoomIn, ZoomOut,
+    NextSearchResult, OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, SaveDocument,
+    Search, SelectTool, ZoomIn, ZoomOut,
 };
 pub use editor_view::EditorView;
 pub use icons::Assets;

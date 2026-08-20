@@ -65,6 +65,12 @@ pub struct InlineText {
 }
 
 #[derive(Clone, Copy)]
+pub struct SearchMatch {
+    pub page_index: usize,
+    pub rect: PdfRect,
+}
+
+#[derive(Clone, Copy)]
 pub struct OverlayRect {
     pub left: f32,
     pub top: f32,

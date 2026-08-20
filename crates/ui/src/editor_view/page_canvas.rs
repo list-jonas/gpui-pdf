@@ -81,6 +81,7 @@ impl EditorView {
                     .child(format!("Loading page {}…", page_index + 1)),
             );
         }
+        element = self.add_search_overlays(element, page_index);
         element = self.add_edit_overlays(element, page_index);
         element = self.add_selection_overlays(element, page_index);
         element = self.add_form_overlays(element, page_index, cx);
@@ -166,6 +167,22 @@ impl EditorView {
                     .border_color(rgb(0x003b_82f6))
                     .bg(rgba(0x223b_82f6)),
             );
+        }
+        page
+    }
+
+    fn add_search_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
+        let geometry = self.pages[page_index].metadata.geometry;
+        for (index, result) in self.search_matches.iter().enumerate() {
+            if result.page_index != page_index {
+                continue;
+            }
+            let color = if index == self.search_index {
+                rgba(0xffa9_005f)
+            } else {
+                rgba(0xffe0_7a45)
+            };
+            page = page.child(positioned(overlay_rect(result.rect, geometry, self.zoom)).bg(color));
         }
         page
     }

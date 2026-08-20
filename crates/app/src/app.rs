@@ -6,8 +6,8 @@ use gpui::{
 use gpui_component::{Root, Theme, ThemeMode, TitleBar};
 use ui::{
     ActualSize, AddTextTool, CommitText, CopySelection, EditorRequest, EditorView, FitPage,
-    HandTool, HighlightTool, NextPage, OpenDocument, PreviousPage, RedactTool, SaveDocument,
-    SelectTool, ZoomIn, ZoomOut,
+    HandTool, HighlightTool, NextPage, NextSearchResult, OpenDocument, PreviousPage,
+    PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool, ZoomIn, ZoomOut,
 };
 
 use crate::session;
@@ -55,6 +55,9 @@ pub fn run() {
             KeyBinding::new("cmd-1", ActualSize, Some("PdfEditor")),
             KeyBinding::new("cmd-enter", CommitText, Some("PdfEditor")),
             KeyBinding::new("cmd-c", CopySelection, Some("PdfEditor")),
+            KeyBinding::new("cmd-f", Search, Some("PdfEditor")),
+            KeyBinding::new("cmd-g", NextSearchResult, Some("PdfEditor")),
+            KeyBinding::new("cmd-shift-g", PreviousSearchResult, Some("PdfEditor")),
             KeyBinding::new("cmd-q", Quit, None),
         ]);
         cx.set_menus(app_menus());
@@ -98,6 +101,14 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Fit Page", FitPage),
                 MenuItem::action("Actual Size", ActualSize),
+            ],
+        },
+        Menu {
+            name: "Edit".into(),
+            items: vec![
+                MenuItem::action("Find", Search),
+                MenuItem::action("Find Next", NextSearchResult),
+                MenuItem::action("Find Previous", PreviousSearchResult),
             ],
         },
         Menu {
