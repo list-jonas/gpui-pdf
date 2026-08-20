@@ -84,7 +84,7 @@ impl EditorView {
         element = self.add_edit_overlays(element, page_index);
         element = self.add_selection_overlays(element, page_index);
         element = self.add_form_overlays(element, page_index, cx);
-        element = self.add_inline_text(element, page_index);
+        element = self.add_inline_text(element, page_index, cx);
         element
             .on_mouse_down(
                 MouseButton::Left,
@@ -147,7 +147,7 @@ impl EditorView {
         let geometry = self.pages[page_index].metadata.geometry;
         for rect in &self.selected_rects {
             page = page
-                .child(positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x553b_82f6)));
+                .child(positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)));
         }
         if let Some(DragState::Region {
             page_index: drag_page,
@@ -155,6 +155,10 @@ impl EditorView {
         }) = &self.drag
             && *drag_page == page_index
             && let Some(rect) = self.drag.as_ref().and_then(DragState::rect)
+            && !matches!(
+                self.tool,
+                super::model::Tool::Select | super::model::Tool::Highlight
+            )
         {
             page = page.child(
                 positioned(overlay_rect(rect, geometry, self.zoom))
@@ -212,7 +216,12 @@ impl EditorView {
         page
     }
 
-    fn add_inline_text(&self, page: gpui::Div, page_index: usize) -> gpui::Div {
+    fn add_inline_text(
+        &self,
+        page: gpui::Div,
+        page_index: usize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let Some(inline) = self
             .inline_text
             .as_ref()
@@ -222,17 +231,55 @@ impl EditorView {
         };
         let geometry = self.pages[page_index].metadata.geometry;
         let (left, top) = overlay_point(inline.point, geometry, self.zoom);
+        let zoom = self.zoom;
         page.child(
             div()
                 .absolute()
                 .left(px(left))
-                .top(px(top - 24.0))
-                .w_56()
-                .h_9()
-                .bg(rgb(0x00ff_ffff))
-                .border_2()
+                .top(px(top - 32.0 * zoom))
+                .w(px(224.0 * zoom))
+                .h(px(36.0 * zoom))
+                .border_1()
                 .border_color(rgb(0x003b_82f6))
-                .child(Input::new(&inline.input)),
+                .occlude()
+                .on_mouse_move(cx.listener(Self::inline_text_mouse_move))
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::inline_text_mouse_up))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(0.0))
+                        .top(px(0.0))
+                        .w(px(18.0 * zoom))
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor_move()
+                        .text_size(px(12.0 * zoom))
+                        .text_color(rgb(0x003b_82f6))
+                        .child("⠿")
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |view, event, window, cx| {
+                                view.inline_text_mouse_down(page_index, event, window, cx);
+                            }),
+                        ),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(18.0 * zoom))
+                        .top(px(0.0))
+                        .right(px(0.0))
+                        .h_full()
+                        .child(
+                            Input::new(&inline.input)
+                                .appearance(false)
+                                .bordered(false)
+                                .focus_bordered(false)
+                                .text_size(px(14.0 * zoom)),
+                        ),
+                ),
         )
     }
 
@@ -261,11 +308,10 @@ fn positioned(rect: OverlayRect) -> gpui::Div {
 }
 
 fn highlight_preview(color: (f64, f64, f64)) -> gpui::Rgba {
-    if color.0 < 0.5 {
-        rgba(0x6678_d98b)
-    } else if color.1 < 0.6 {
-        rgba(0x66ff_7bab)
-    } else {
-        rgba(0x66ff_dc33)
+    gpui::Rgba {
+        r: color.0 as f32,
+        g: color.1 as f32,
+        b: color.2 as f32,
+        a: 0.35,
     }
 }

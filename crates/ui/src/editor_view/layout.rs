@@ -445,6 +445,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::redact_tool))
             .on_action(cx.listener(Self::zoom_in))
             .on_action(cx.listener(Self::zoom_out))
+            .on_action(cx.listener(Self::copy_selection))
             .on_action(cx.listener(Self::actual_size))
             .on_action(cx.listener(Self::fit_page))
             .on_action(cx.listener(Self::commit_text))

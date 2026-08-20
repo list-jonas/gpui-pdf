@@ -5,9 +5,9 @@ use gpui::{
 };
 use gpui_component::{Root, Theme, ThemeMode, TitleBar};
 use ui::{
-    ActualSize, AddTextTool, CommitText, EditorRequest, EditorView, FitPage, HandTool,
-    HighlightTool, NextPage, OpenDocument, PreviousPage, RedactTool, SaveDocument, SelectTool,
-    ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, CommitText, CopySelection, EditorRequest, EditorView, FitPage,
+    HandTool, HighlightTool, NextPage, OpenDocument, PreviousPage, RedactTool, SaveDocument,
+    SelectTool, ZoomIn, ZoomOut,
 };
 
 use crate::session;
@@ -54,6 +54,7 @@ pub fn run() {
             KeyBinding::new("cmd-0", FitPage, Some("PdfEditor")),
             KeyBinding::new("cmd-1", ActualSize, Some("PdfEditor")),
             KeyBinding::new("cmd-enter", CommitText, Some("PdfEditor")),
+            KeyBinding::new("cmd-c", CopySelection, Some("PdfEditor")),
             KeyBinding::new("cmd-q", Quit, None),
         ]);
         cx.set_menus(app_menus());
@@ -116,6 +117,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Redact", RedactTool),
                 MenuItem::separator(),
                 MenuItem::action("Commit Text", CommitText),
+                MenuItem::action("Copy Selection", CopySelection),
             ],
         },
     ]

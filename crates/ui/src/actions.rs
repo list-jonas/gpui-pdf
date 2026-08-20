@@ -16,6 +16,7 @@ actions!(
         ZoomOut,
         ActualSize,
         FitPage,
-        CommitText
+        CommitText,
+        CopySelection
     ]
 );

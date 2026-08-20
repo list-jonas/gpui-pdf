@@ -6,8 +6,8 @@ mod page_image;
 mod protocol;
 
 pub use actions::{
-    ActualSize, AddTextTool, CommitText, FitPage, HandTool, HighlightTool, NextPage, OpenDocument,
-    PreviousPage, RedactTool, SaveDocument, SelectTool, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, CommitText, CopySelection, FitPage, HandTool, HighlightTool, NextPage,
+    OpenDocument, PreviousPage, RedactTool, SaveDocument, SelectTool, ZoomIn, ZoomOut,
 };
 pub use editor_view::EditorView;
 pub use icons::Assets;

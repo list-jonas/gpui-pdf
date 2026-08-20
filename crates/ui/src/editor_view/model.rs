@@ -36,6 +36,11 @@ pub enum DragState {
         start: Point<Pixels>,
         offset: Point<Pixels>,
     },
+    InlineText {
+        page_index: usize,
+        start: PdfPoint,
+        point: PdfPoint,
+    },
 }
 
 impl DragState {

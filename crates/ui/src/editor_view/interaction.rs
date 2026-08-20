@@ -1,12 +1,12 @@
 use gpui::{
-    Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent, ScrollWheelEvent, Window,
-    point, px,
+    ClipboardItem, Context, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PinchEvent,
+    ScrollWheelEvent, Window, point, px,
 };
 use pdf_engine::{EditCommand, TextStamp};
 
 use crate::actions::{
-    ActualSize, AddTextTool, CommitText, FitPage, HandTool, HighlightTool, RedactTool, SelectTool,
-    ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, CommitText, CopySelection, FitPage, HandTool, HighlightTool,
+    RedactTool, SelectTool, ZoomIn, ZoomOut,
 };
 use crate::editor_view::input;
 
@@ -195,6 +195,55 @@ impl EditorView {
         cx.notify();
     }
 
+    pub(super) fn inline_text_mouse_down(
+        &mut self,
+        page_index: usize,
+        event: &MouseDownEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(point) = self.pdf_point(page_index, event.position) else {
+            return;
+        };
+        let Some(inline) = self
+            .inline_text
+            .as_ref()
+            .filter(|inline| inline.page_index == page_index)
+        else {
+            return;
+        };
+        self.drag = Some(DragState::InlineText {
+            page_index,
+            start: point,
+            point: inline.point,
+        });
+        cx.stop_propagation();
+        cx.notify();
+    }
+
+    pub(super) fn inline_text_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.dragging() {
+            self.move_inline_text(event.position, cx);
+        }
+    }
+
+    pub(super) fn inline_text_mouse_up(
+        &mut self,
+        _: &MouseUpEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if matches!(self.drag, Some(DragState::InlineText { .. })) {
+            self.drag = None;
+            cx.notify();
+        }
+    }
+
     pub(super) fn page_mouse_move(
         &mut self,
         event: &MouseMoveEvent,
@@ -203,6 +252,9 @@ impl EditorView {
     ) {
         let pointer = match &self.drag {
             Some(DragState::Region { page_index, .. }) => {
+                self.pdf_point(*page_index, event.position)
+            }
+            Some(DragState::InlineText { page_index, .. }) => {
                 self.pdf_point(*page_index, event.position)
             }
             _ => None,
@@ -219,7 +271,20 @@ impl EditorView {
                 };
                 *current = point;
             }
+            Some(DragState::InlineText { .. }) => {
+                self.move_inline_text(event.position, cx);
+                return;
+            }
             None => return,
+        }
+        if let Some(DragState::Region {
+            page_index,
+            start,
+            current,
+        }) = self.drag.as_ref()
+            && matches!(self.tool, Tool::Select | Tool::Highlight)
+        {
+            self.select_text_range(*page_index, *start, *current);
         }
         cx.notify();
     }
@@ -234,78 +299,109 @@ impl EditorView {
             self.drag = None;
             return;
         }
+        if matches!(self.drag, Some(DragState::InlineText { .. })) {
+            self.drag = None;
+            cx.notify();
+            return;
+        }
         let Some(mut drag) = self.drag.take() else {
             return;
         };
         let page_index = match &drag {
             DragState::Region { page_index, .. } => *page_index,
-            DragState::Pan { .. } => return,
+            DragState::Pan { .. } | DragState::InlineText { .. } => return,
         };
         if let Some(point) = self.pdf_point(page_index, event.position)
             && let DragState::Region { current, .. } = &mut drag
         {
             *current = point;
         }
-        let Some(rect) = drag.rect() else {
-            cx.notify();
+        let DragState::Region { start, current, .. } = drag else {
             return;
         };
-        self.finish_region(page_index, rect);
+        self.finish_region(page_index, start, current);
         cx.notify();
     }
 
-    fn finish_region(&mut self, page_index: usize, rect: document_core::PdfRect) {
+    fn finish_region(
+        &mut self,
+        page_index: usize,
+        start: document_core::PdfPoint,
+        current: document_core::PdfPoint,
+    ) {
         match self.tool {
-            Tool::Select => self.select_fragments(page_index, rect),
-            Tool::Highlight => self.highlight_fragments(page_index, rect),
+            Tool::Select => self.select_text_range(page_index, start, current),
+            Tool::Highlight => {
+                self.select_text_range(page_index, start, current);
+                self.highlight_selection(page_index);
+            }
             Tool::Redact => {
-                self.edits.push(EditCommand::Redact { page_index, rect });
-                self.status = "Redaction queued; Save As to apply".into();
+                if let Some(rect) = (DragState::Region {
+                    page_index,
+                    start,
+                    current,
+                })
+                .rect()
+                {
+                    self.edits.push(EditCommand::Redact { page_index, rect });
+                    self.status = "Redaction queued; Save As to apply".into();
+                }
             }
             Tool::Hand | Tool::AddText => {}
         }
     }
 
-    fn select_fragments(&mut self, page_index: usize, rect: document_core::PdfRect) {
+    fn select_text_range(
+        &mut self,
+        page_index: usize,
+        start: document_core::PdfPoint,
+        current: document_core::PdfPoint,
+    ) {
         let Some(page) = self.pages.get(page_index) else {
             return;
         };
-        let selected: Vec<_> = page
-            .fragments
+        let selection = text_selection(&page.fragments, start, current);
+        self.selected_rects = selection.iter().map(|(rect, _)| *rect).collect();
+        self.selected_text = selection
             .iter()
-            .filter(|fragment| fragment.rect.intersection(rect).is_some())
-            .collect();
-        self.selected_rects = selected.iter().map(|fragment| fragment.rect).collect();
-        self.selected_text = selected
-            .iter()
-            .map(|fragment| fragment.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ")
+            .map(|(_, text)| text.as_str())
+            .collect::<String>()
             .into();
-        self.status = format!("Selected {} text runs", selected.len()).into();
+        self.status = if self.selected_rects.is_empty() {
+            "No text selected".into()
+        } else {
+            format!("Selected {} characters", self.selected_text.chars().count()).into()
+        };
     }
 
-    fn highlight_fragments(&mut self, page_index: usize, rect: document_core::PdfRect) {
-        let Some(page) = self.pages.get(page_index) else {
-            return;
-        };
-        let rects: Vec<_> = page
-            .fragments
-            .iter()
-            .filter(|fragment| fragment.rect.intersection(rect).is_some())
-            .map(|fragment| fragment.rect)
-            .collect();
-        if rects.is_empty() {
+    fn highlight_selection(&mut self, page_index: usize) {
+        if self.selected_rects.is_empty() {
             self.status = "No text under highlight selection".into();
             return;
         }
-        self.selected_rects.clone_from(&rects);
         self.edits.push(EditCommand::Highlight {
             page_index,
-            rects,
+            rects: self.selected_rects.clone(),
             color: self.highlight_color,
         });
+        self.selected_rects.clear();
+        self.selected_text = "No text selected".into();
         self.status = "Highlight queued; Save As to write annotation".into();
+    }
+
+    pub(super) fn copy_selection(
+        &mut self,
+        _: &CopySelection,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.selected_text.is_empty() || self.selected_text == "No text selected" {
+            self.status = "No text selected to copy".into();
+        } else {
+            cx.write_to_clipboard(ClipboardItem::new_string(self.selected_text.to_string()));
+            self.status = "Copied selected text".into();
+        }
+        cx.notify();
     }
 
     pub(super) fn commit_text(&mut self, _: &CommitText, _: &mut Window, cx: &mut Context<Self>) {
@@ -342,5 +438,159 @@ impl EditorView {
             page.metadata.geometry,
             self.zoom,
         )
+    }
+
+    fn move_inline_text(&mut self, position: gpui::Point<gpui::Pixels>, cx: &mut Context<Self>) {
+        let Some((page_index, start, original)) = self.drag.as_ref().and_then(|drag| match drag {
+            DragState::InlineText {
+                page_index,
+                start,
+                point,
+            } => Some((*page_index, *start, *point)),
+            _ => None,
+        }) else {
+            return;
+        };
+        let Some(current) = self.pdf_point(page_index, position) else {
+            return;
+        };
+        if let Some(inline) = self.inline_text.as_mut() {
+            inline.point = document_core::PdfPoint::new(
+                original.x + current.x - start.x,
+                original.y + current.y - start.y,
+            );
+            self.status = "Move text field".into();
+            cx.notify();
+        }
+    }
+}
+
+fn text_selection(
+    fragments: &[pdf_engine::TextFragment],
+    start: document_core::PdfPoint,
+    current: document_core::PdfPoint,
+) -> Vec<(document_core::PdfRect, String)> {
+    let Some(start_index) = nearest_fragment(fragments, start) else {
+        return Vec::new();
+    };
+    let Some(end_index) = nearest_fragment(fragments, current) else {
+        return Vec::new();
+    };
+    let start_offset = text_offset(&fragments[start_index], start);
+    let end_offset = text_offset(&fragments[end_index], current);
+    let forward = (start_index, start_offset) <= (end_index, end_offset);
+    let (first_index, first_offset, last_index, last_offset) = if forward {
+        (start_index, start_offset, end_index, end_offset)
+    } else {
+        (end_index, end_offset, start_index, start_offset)
+    };
+
+    (first_index..=last_index)
+        .filter_map(|index| {
+            let fragment = &fragments[index];
+            let char_count = fragment.text.chars().count();
+            let from = if index == first_index {
+                first_offset
+            } else {
+                0
+            };
+            let to = if index == last_index {
+                last_offset
+            } else {
+                char_count
+            };
+            let text: String = fragment
+                .text
+                .chars()
+                .skip(from)
+                .take(to.saturating_sub(from))
+                .collect();
+            selection_rect(fragment.rect, char_count, from, to).map(|rect| (rect, text))
+        })
+        .collect()
+}
+
+fn nearest_fragment(
+    fragments: &[pdf_engine::TextFragment],
+    point: document_core::PdfPoint,
+) -> Option<usize> {
+    fragments
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| {
+            point_distance(left.rect, point).total_cmp(&point_distance(right.rect, point))
+        })
+        .map(|(index, _)| index)
+}
+
+fn point_distance(rect: document_core::PdfRect, point: document_core::PdfPoint) -> f64 {
+    let x = point.x.clamp(rect.x_min, rect.x_max);
+    let y = point.y.clamp(rect.y_min, rect.y_max);
+    (point.x - x).powi(2) + (point.y - y).powi(2)
+}
+
+fn text_offset(fragment: &pdf_engine::TextFragment, point: document_core::PdfPoint) -> usize {
+    let count = fragment.text.chars().count();
+    if count == 0 {
+        return 0;
+    }
+    (((point.x - fragment.rect.x_min) / fragment.rect.width()) * count as f64)
+        .round()
+        .clamp(0.0, count as f64) as usize
+}
+
+fn selection_rect(
+    rect: document_core::PdfRect,
+    char_count: usize,
+    from: usize,
+    to: usize,
+) -> Option<document_core::PdfRect> {
+    if char_count == 0 || from >= to {
+        return None;
+    }
+    let width = rect.width() / char_count as f64;
+    document_core::PdfRect::new(
+        rect.x_min + width * from as f64,
+        rect.y_min,
+        rect.x_min + width * to as f64,
+        rect.y_max,
+    )
+    .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use document_core::{PdfPoint, PdfRect};
+    use pdf_engine::TextFragment;
+
+    use super::text_selection;
+
+    #[test]
+    fn text_selection_trims_first_and_last_fragment() {
+        let fragments = vec![
+            TextFragment {
+                text: "Hello ".into(),
+                rect: PdfRect::new(0.0, 0.0, 60.0, 10.0).unwrap(),
+            },
+            TextFragment {
+                text: "world".into(),
+                rect: PdfRect::new(60.0, 0.0, 110.0, 10.0).unwrap(),
+            },
+        ];
+
+        let selected = text_selection(
+            &fragments,
+            PdfPoint::new(20.0, 5.0),
+            PdfPoint::new(90.0, 5.0),
+        );
+
+        assert_eq!(
+            selected
+                .iter()
+                .map(|(_, text)| text.as_str())
+                .collect::<String>(),
+            "llo wor"
+        );
+        assert_eq!(selected.len(), 2);
     }
 }
