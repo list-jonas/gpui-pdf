@@ -1,6 +1,7 @@
 use document_core::{PdfPoint, PdfRect};
 use gpui::{Pixels, Point};
 use gpui_component::input::InputState;
+use pdf_engine::ShapeKind;
 
 use gpui::Entity;
 
@@ -10,7 +11,11 @@ pub enum Tool {
     Select,
     Hand,
     Highlight,
+    Underline,
+    Strikeout,
     AddText,
+    Note,
+    Shape,
     Redact,
 }
 
@@ -20,7 +25,11 @@ impl Tool {
             Self::Select => "Select",
             Self::Hand => "Hand",
             Self::Highlight => "Highlight",
+            Self::Underline => "Underline",
+            Self::Strikeout => "Strike out",
             Self::AddText => "Add text",
+            Self::Note => "Comment",
+            Self::Shape => "Shape",
             Self::Redact => "Redact",
         }
     }
@@ -62,6 +71,19 @@ pub struct InlineText {
     pub page_index: usize,
     pub point: PdfPoint,
     pub input: Entity<InputState>,
+}
+
+pub struct InlineNote {
+    pub page_index: usize,
+    pub point: PdfPoint,
+    pub input: Entity<InputState>,
+}
+
+pub const fn shape_label(kind: ShapeKind) -> &'static str {
+    match kind {
+        ShapeKind::Rectangle => "Rectangle",
+        ShapeKind::Ellipse => "Ellipse",
+    }
 }
 
 #[derive(Clone, Copy)]

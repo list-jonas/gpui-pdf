@@ -5,15 +5,16 @@ use gpui::{
 use pdf_engine::{EditCommand, TextStamp};
 
 use crate::actions::{
-    ActualSize, AddTextTool, CommitText, CopySelection, FitPage, HandTool, HighlightTool,
-    RedactTool, SelectTool, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, CommitNote, CommitText, CopySelection, FitPage, HandTool,
+    HighlightTool, NoteTool, RedactTool, SelectTool, ShapeTool, StrikeoutTool, UnderlineTool,
+    ZoomIn, ZoomOut,
 };
-use crate::editor_view::input;
+use crate::editor_view::inline_text_input;
 
 use super::EditorView;
 use super::geometry::page_point;
 use super::gestures::{AnchorContext, DocumentMetrics, anchored_document_offset, pinch_zoom};
-use super::model::{DragState, InlineText, Tool};
+use super::model::{DragState, InlineNote, InlineText, Tool};
 
 impl EditorView {
     pub(super) fn select_tool(&mut self, _: &SelectTool, _: &mut Window, cx: &mut Context<Self>) {
@@ -42,6 +43,32 @@ impl EditorView {
         self.activate_tool(Tool::AddText, cx);
     }
 
+    pub(super) fn underline_tool(
+        &mut self,
+        _: &UnderlineTool,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.activate_tool(Tool::Underline, cx);
+    }
+
+    pub(super) fn strikeout_tool(
+        &mut self,
+        _: &StrikeoutTool,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.activate_tool(Tool::Strikeout, cx);
+    }
+
+    pub(super) fn note_tool(&mut self, _: &NoteTool, _: &mut Window, cx: &mut Context<Self>) {
+        self.activate_tool(Tool::Note, cx);
+    }
+
+    pub(super) fn shape_tool(&mut self, _: &ShapeTool, _: &mut Window, cx: &mut Context<Self>) {
+        self.activate_tool(Tool::Shape, cx);
+    }
+
     pub(super) fn redact_tool(&mut self, _: &RedactTool, _: &mut Window, cx: &mut Context<Self>) {
         self.activate_tool(Tool::Redact, cx);
     }
@@ -49,6 +76,8 @@ impl EditorView {
     fn activate_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
         self.tool = tool;
         self.drag = None;
+        self.inline_text = None;
+        self.inline_note = None;
         self.status = format!("{} tool active", tool.label()).into();
         cx.notify();
     }
@@ -172,18 +201,27 @@ impl EditorView {
                 start: event.position,
                 offset: self.scroll.offset(),
             });
+            cx.notify();
             return;
         }
         let Some(point) = self.pdf_point(page_index, event.position) else {
             return;
         };
         if self.tool == Tool::AddText {
-            let text = input("Type on page", "", window, cx);
+            let text = inline_text_input("Type on page", "", window, cx);
             text.update(cx, |state, cx| state.focus(window, cx));
             self.inline_text = Some(InlineText {
                 page_index,
                 point,
                 input: text,
+            });
+        } else if self.tool == Tool::Note {
+            let note = inline_text_input("Write comment", "", window, cx);
+            note.update(cx, |state, cx| state.focus(window, cx));
+            self.inline_note = Some(InlineNote {
+                page_index,
+                point,
+                input: note,
             });
         } else {
             self.drag = Some(DragState::Region {
@@ -282,7 +320,10 @@ impl EditorView {
             start,
             current,
         }) = self.drag.as_ref()
-            && matches!(self.tool, Tool::Select | Tool::Highlight)
+            && matches!(
+                self.tool,
+                Tool::Select | Tool::Highlight | Tool::Underline | Tool::Strikeout
+            )
         {
             self.select_text_range(*page_index, *start, *current);
         }
@@ -297,6 +338,7 @@ impl EditorView {
     ) {
         if matches!(self.drag, Some(DragState::Pan { .. })) {
             self.drag = None;
+            cx.notify();
             return;
         }
         if matches!(self.drag, Some(DragState::InlineText { .. })) {
@@ -335,6 +377,32 @@ impl EditorView {
                 self.select_text_range(page_index, start, current);
                 self.highlight_selection(page_index);
             }
+            Tool::Underline => {
+                self.select_text_range(page_index, start, current);
+                self.markup_selection(page_index, Markup::Underline);
+            }
+            Tool::Strikeout => {
+                self.select_text_range(page_index, start, current);
+                self.markup_selection(page_index, Markup::Strikeout);
+            }
+            Tool::Shape => {
+                if let Some(rect) = (DragState::Region {
+                    page_index,
+                    start,
+                    current,
+                })
+                .rect()
+                {
+                    self.edits.push(EditCommand::Shape {
+                        page_index,
+                        kind: self.shape_kind,
+                        rect,
+                        color: self.annotation_color,
+                        width: 2.0,
+                    });
+                    self.status = "Shape queued; Save As to write annotation".into();
+                }
+            }
             Tool::Redact => {
                 if let Some(rect) = (DragState::Region {
                     page_index,
@@ -347,7 +415,7 @@ impl EditorView {
                     self.status = "Redaction queued; Save As to apply".into();
                 }
             }
-            Tool::Hand | Tool::AddText => {}
+            Tool::Hand | Tool::AddText | Tool::Note => {}
         }
     }
 
@@ -375,18 +443,36 @@ impl EditorView {
     }
 
     fn highlight_selection(&mut self, page_index: usize) {
+        self.markup_selection(page_index, Markup::Highlight);
+    }
+
+    fn markup_selection(&mut self, page_index: usize, markup: Markup) {
         if self.selected_rects.is_empty() {
-            self.status = "No text under highlight selection".into();
+            self.status = format!("No text under {} selection", markup.label()).into();
             return;
         }
-        self.edits.push(EditCommand::Highlight {
-            page_index,
-            rects: self.selected_rects.clone(),
-            color: self.highlight_color,
-        });
+        let rects = self.selected_rects.clone();
+        let edit = match markup {
+            Markup::Highlight => EditCommand::Highlight {
+                page_index,
+                rects,
+                color: self.highlight_color,
+            },
+            Markup::Underline => EditCommand::Underline {
+                page_index,
+                rects,
+                color: self.annotation_color,
+            },
+            Markup::Strikeout => EditCommand::StrikeOut {
+                page_index,
+                rects,
+                color: self.annotation_color,
+            },
+        };
+        self.edits.push(edit);
         self.selected_rects.clear();
         self.selected_text = "No text selected".into();
-        self.status = "Highlight queued; Save As to write annotation".into();
+        self.status = format!("{} queued; Save As to write annotation", markup.label()).into();
     }
 
     pub(super) fn copy_selection(
@@ -422,6 +508,28 @@ impl EditorView {
                 size: 14.0,
             }));
             self.status = "Text queued; Save As to write it".into();
+        }
+        cx.notify();
+    }
+
+    pub(super) fn commit_note(&mut self, _: &CommitNote, _: &mut Window, cx: &mut Context<Self>) {
+        let Some(note) = self.inline_note.take() else {
+            self.status = "Click page with Comment tool first".into();
+            cx.notify();
+            return;
+        };
+        let contents = note.input.read(cx).value().trim().to_owned();
+        if contents.is_empty() {
+            self.status = "Comment cannot be empty".into();
+        } else {
+            self.edits.push(EditCommand::Note {
+                page_index: note.page_index,
+                x: note.point.x,
+                y: note.point.y,
+                contents,
+                color: self.annotation_color,
+            });
+            self.status = "Comment queued; Save As to write annotation".into();
         }
         cx.notify();
     }
@@ -465,6 +573,23 @@ impl EditorView {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Markup {
+    Highlight,
+    Underline,
+    Strikeout,
+}
+
+impl Markup {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Highlight => "Highlight",
+            Self::Underline => "Underline",
+            Self::Strikeout => "Strike out",
+        }
+    }
+}
+
 fn text_selection(
     fragments: &[pdf_engine::TextFragment],
     start: document_core::PdfPoint,
@@ -476,36 +601,17 @@ fn text_selection(
     let Some(end_index) = nearest_fragment(fragments, current) else {
         return Vec::new();
     };
-    let start_offset = text_offset(&fragments[start_index], start);
-    let end_offset = text_offset(&fragments[end_index], current);
-    let forward = (start_index, start_offset) <= (end_index, end_offset);
-    let (first_index, first_offset, last_index, last_offset) = if forward {
-        (start_index, start_offset, end_index, end_offset)
+    let forward = start_index <= end_index;
+    let (first_index, last_index) = if forward {
+        (start_index, end_index)
     } else {
-        (end_index, end_offset, start_index, start_offset)
+        (end_index, start_index)
     };
 
     (first_index..=last_index)
-        .filter_map(|index| {
+        .map(|index| {
             let fragment = &fragments[index];
-            let char_count = fragment.text.chars().count();
-            let from = if index == first_index {
-                first_offset
-            } else {
-                0
-            };
-            let to = if index == last_index {
-                last_offset
-            } else {
-                char_count
-            };
-            let text: String = fragment
-                .text
-                .chars()
-                .skip(from)
-                .take(to.saturating_sub(from))
-                .collect();
-            selection_rect(fragment.rect, char_count, from, to).map(|rect| (rect, text))
+            (fragment.rect, fragment.text.clone())
         })
         .collect()
 }
@@ -529,35 +635,6 @@ fn point_distance(rect: document_core::PdfRect, point: document_core::PdfPoint) 
     (point.x - x).powi(2) + (point.y - y).powi(2)
 }
 
-fn text_offset(fragment: &pdf_engine::TextFragment, point: document_core::PdfPoint) -> usize {
-    let count = fragment.text.chars().count();
-    if count == 0 {
-        return 0;
-    }
-    (((point.x - fragment.rect.x_min) / fragment.rect.width()) * count as f64)
-        .round()
-        .clamp(0.0, count as f64) as usize
-}
-
-fn selection_rect(
-    rect: document_core::PdfRect,
-    char_count: usize,
-    from: usize,
-    to: usize,
-) -> Option<document_core::PdfRect> {
-    if char_count == 0 || from >= to {
-        return None;
-    }
-    let width = rect.width() / char_count as f64;
-    document_core::PdfRect::new(
-        rect.x_min + width * from as f64,
-        rect.y_min,
-        rect.x_min + width * to as f64,
-        rect.y_max,
-    )
-    .ok()
-}
-
 #[cfg(test)]
 mod tests {
     use document_core::{PdfPoint, PdfRect};
@@ -566,7 +643,7 @@ mod tests {
     use super::text_selection;
 
     #[test]
-    fn text_selection_trims_first_and_last_fragment() {
+    fn text_selection_preserves_complete_fragment_text() {
         let fragments = vec![
             TextFragment {
                 text: "Hello ".into(),
@@ -589,7 +666,7 @@ mod tests {
                 .iter()
                 .map(|(_, text)| text.as_str())
                 .collect::<String>(),
-            "llo wor"
+            "Hello world"
         );
         assert_eq!(selected.len(), 2);
     }

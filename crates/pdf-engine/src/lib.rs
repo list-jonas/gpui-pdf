@@ -6,7 +6,7 @@ mod renderer;
 mod text;
 mod types;
 
-pub use editor::{EditCommand, PdfEditor, TextStamp};
+pub use editor::{EditCommand, PdfEditor, ShapeKind, TextStamp};
 pub use error::{EngineError, EngineErrorKind};
 pub use forms::{FormField, FormFieldKind, FormWidget};
 pub use reader::{PdfDocument, PdfEngine, PdfReader};

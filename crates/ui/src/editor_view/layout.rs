@@ -9,9 +9,9 @@ use gpui_component::{Disableable, Icon, TitleBar};
 
 use crate::EditorView;
 use crate::actions::{
-    AddTextTool, FitPage, HandTool, HighlightTool, NextPage, NextSearchResult, OpenDocument,
-    PreviousPage, PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool, ZoomIn,
-    ZoomOut,
+    AddTextTool, FitPage, HandTool, HighlightTool, NextPage, NextSearchResult, NoteTool,
+    OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool,
+    ShapeTool, StrikeoutTool, UnderlineTool, ZoomIn, ZoomOut,
 };
 use crate::icons::HugeIcon;
 
@@ -90,6 +90,7 @@ impl EditorView {
                             .bg(rgb(0x0011_1316))
                             .text_sm()
                             .text_color(rgb(0x008c_939d))
+                            .cursor_text()
                             .child(Icon::new(HugeIcon::Search).size_4())
                             .child(
                                 div().flex_1().child(
@@ -103,6 +104,7 @@ impl EditorView {
                                 Button::new("search-previous")
                                     .icon(HugeIcon::Previous)
                                     .ghost()
+                                    .cursor_pointer()
                                     .tooltip("Previous result")
                                     .on_click(cx.listener(|view, _, window, cx| {
                                         view.previous_search_result(
@@ -116,6 +118,7 @@ impl EditorView {
                                 Button::new("search-next")
                                     .icon(HugeIcon::Next)
                                     .ghost()
+                                    .cursor_pointer()
                                     .tooltip("Next result")
                                     .on_click(cx.listener(|view, _, window, cx| {
                                         view.next_search_result(&NextSearchResult, window, cx);
@@ -132,6 +135,7 @@ impl EditorView {
                         Button::new("open")
                             .icon(HugeIcon::Open)
                             .ghost()
+                            .cursor_pointer()
                             .tooltip("Open PDF")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.open_picker(&OpenDocument, window, cx);
@@ -141,6 +145,7 @@ impl EditorView {
                         Button::new("save")
                             .icon(HugeIcon::Share)
                             .ghost()
+                            .cursor_pointer()
                             .tooltip("Save As…")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.save_picker(&SaveDocument, window, cx);
@@ -188,17 +193,16 @@ impl EditorView {
                 HandTool,
                 cx,
             ))
-            .child(Self::tool_placeholder(
-                "annotate",
-                "Annotate",
-                HugeIcon::Annotate,
-                0x00c5_cbd3,
-            ))
-            .child(Self::tool_placeholder(
-                "edit",
-                "Edit",
-                HugeIcon::Edit,
-                0x004e_9cff,
+            .child(self.tool_button(
+                ToolButtonSpec {
+                    id: "comment",
+                    label: "Comment",
+                    icon: HugeIcon::Annotate,
+                    color: 0x00f5_b942,
+                    tool: Tool::Note,
+                },
+                NoteTool,
+                cx,
             ))
             .child(self.tool_button(
                 ToolButtonSpec {
@@ -210,18 +214,6 @@ impl EditorView {
                 },
                 AddTextTool,
                 cx,
-            ))
-            .child(Self::tool_placeholder(
-                "image",
-                "Image",
-                HugeIcon::Image,
-                0x006b_d96b,
-            ))
-            .child(Self::tool_placeholder(
-                "link",
-                "Link",
-                HugeIcon::Link,
-                0x00c5_cbd3,
             ))
             .child(self.tool_button(
                 ToolButtonSpec {
@@ -239,10 +231,30 @@ impl EditorView {
 
     fn trailing_toolbar_items(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
         vec![
-            Self::tool_placeholder("underline", "Underline", HugeIcon::Underline, 0x00b4_63ff)
-                .into_any_element(),
-            Self::tool_placeholder("strike", "Strike", HugeIcon::Strike, 0x00ff_4f47)
-                .into_any_element(),
+            self.tool_button(
+                ToolButtonSpec {
+                    id: "underline",
+                    label: "Underline",
+                    icon: HugeIcon::Underline,
+                    color: 0x00b4_63ff,
+                    tool: Tool::Underline,
+                },
+                UnderlineTool,
+                cx,
+            )
+            .into_any_element(),
+            self.tool_button(
+                ToolButtonSpec {
+                    id: "strike",
+                    label: "Strike",
+                    icon: HugeIcon::Strike,
+                    color: 0x00ff_4f47,
+                    tool: Tool::Strikeout,
+                },
+                StrikeoutTool,
+                cx,
+            )
+            .into_any_element(),
             self.tool_button(
                 ToolButtonSpec {
                     id: "redact",
@@ -255,11 +267,18 @@ impl EditorView {
                 cx,
             )
             .into_any_element(),
-            Self::tool_placeholder("shapes", "Shapes", HugeIcon::Shapes, 0x00ca_61ff)
-                .into_any_element(),
-            Self::tool_placeholder("sign", "Sign", HugeIcon::Sign, 0x004e_a4ff).into_any_element(),
-            Self::tool_placeholder("tools-more", "More", HugeIcon::More, 0x00c5_cbd3)
-                .into_any_element(),
+            self.tool_button(
+                ToolButtonSpec {
+                    id: "shapes",
+                    label: "Shapes",
+                    icon: HugeIcon::Shapes,
+                    color: 0x00ca_61ff,
+                    tool: Tool::Shape,
+                },
+                ShapeTool,
+                cx,
+            )
+            .into_any_element(),
         ]
     }
 
@@ -294,29 +313,6 @@ impl EditorView {
             }))
     }
 
-    fn tool_placeholder(
-        id: &'static str,
-        label: &'static str,
-        icon: HugeIcon,
-        color: u32,
-    ) -> impl IntoElement {
-        div()
-            .id(id)
-            .w(px(70.0))
-            .h(px(64.0))
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .gap_1()
-            .rounded_lg()
-            .text_xs()
-            .text_color(rgb(0x00d5_d8dd))
-            .opacity(0.45)
-            .child(Icon::new(icon).size_5().text_color(rgb(color)))
-            .child(label)
-    }
-
     fn render_floating_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .absolute()
@@ -343,6 +339,8 @@ impl EditorView {
                             .icon(HugeIcon::Previous)
                             .ghost()
                             .disabled(self.page_index == 0)
+                            .when(self.page_index == 0, |button| button.cursor_not_allowed())
+                            .when(self.page_index != 0, |button| button.cursor_pointer())
                             .tooltip("Previous page")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.previous_page(&PreviousPage, window, cx);
@@ -360,6 +358,14 @@ impl EditorView {
                             .disabled(
                                 self.page_count == 0 || self.page_index + 1 >= self.page_count,
                             )
+                            .when(
+                                self.page_count == 0 || self.page_index + 1 >= self.page_count,
+                                |button| button.cursor_not_allowed(),
+                            )
+                            .when(
+                                self.page_count != 0 && self.page_index + 1 < self.page_count,
+                                |button| button.cursor_pointer(),
+                            )
                             .tooltip("Next page")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.next_page(&NextPage, window, cx);
@@ -370,6 +376,7 @@ impl EditorView {
                         Button::new("zoom-out")
                             .icon(HugeIcon::ZoomOut)
                             .ghost()
+                            .cursor_pointer()
                             .tooltip("Zoom out")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.zoom_out(&ZoomOut, window, cx);
@@ -386,6 +393,7 @@ impl EditorView {
                         Button::new("zoom-in")
                             .icon(HugeIcon::ZoomIn)
                             .ghost()
+                            .cursor_pointer()
                             .tooltip("Zoom in")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.zoom_in(&ZoomIn, window, cx);
@@ -395,6 +403,7 @@ impl EditorView {
                         Button::new("fit")
                             .icon(HugeIcon::Fit)
                             .ghost()
+                            .cursor_pointer()
                             .tooltip("Fit page")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.fit_page(&FitPage, window, cx);
@@ -478,7 +487,11 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::select_tool))
             .on_action(cx.listener(Self::hand_tool))
             .on_action(cx.listener(Self::highlight_tool))
+            .on_action(cx.listener(Self::underline_tool))
+            .on_action(cx.listener(Self::strikeout_tool))
             .on_action(cx.listener(Self::add_text_tool))
+            .on_action(cx.listener(Self::note_tool))
+            .on_action(cx.listener(Self::shape_tool))
             .on_action(cx.listener(Self::redact_tool))
             .on_action(cx.listener(Self::zoom_in))
             .on_action(cx.listener(Self::zoom_out))
@@ -489,6 +502,7 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::actual_size))
             .on_action(cx.listener(Self::fit_page))
             .on_action(cx.listener(Self::commit_text))
+            .on_action(cx.listener(Self::commit_note))
             .flex()
             .flex_col()
             .size_full()

@@ -1,16 +1,17 @@
+use gpui::prelude::FluentBuilder;
 use gpui::{
-    Context, InteractiveElement, IntoElement, MouseButton, ParentElement,
+    Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, canvas, div, img, px, rgb, rgba,
 };
-use gpui_component::Disableable;
 use gpui_component::button::Button;
 use gpui_component::input::Input;
-use pdf_engine::{EditCommand, FormFieldKind};
+use gpui_component::{Disableable, Sizable, Size};
+use pdf_engine::{EditCommand, FormFieldKind, ShapeKind};
 
 use crate::EditorView;
 
-use super::geometry::{overlay_point, overlay_rect, ui_f32};
-use super::model::{DragState, OverlayRect};
+use super::geometry::{RENDER_SCALE, overlay_point, overlay_rect, ui_f32};
+use super::model::{DragState, OverlayRect, Tool};
 
 impl EditorView {
     pub(super) fn render_document(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -81,20 +82,29 @@ impl EditorView {
                     .child(format!("Loading page {}…", page_index + 1)),
             );
         }
+        element = element.child(
+            div()
+                .absolute()
+                .top(px(0.0))
+                .left(px(0.0))
+                .size_full()
+                .cursor(self.page_cursor())
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |view, event, window, cx| {
+                        view.page_mouse_down(page_index, event, window, cx);
+                    }),
+                )
+                .on_mouse_move(cx.listener(Self::page_mouse_move))
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::page_mouse_up)),
+        );
         element = self.add_search_overlays(element, page_index);
         element = self.add_edit_overlays(element, page_index);
         element = self.add_selection_overlays(element, page_index);
         element = self.add_form_overlays(element, page_index, cx);
         element = self.add_inline_text(element, page_index, cx);
+        element = self.add_inline_note(element, page_index, cx);
         element
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |view, event, window, cx| {
-                    view.page_mouse_down(page_index, event, window, cx);
-                }),
-            )
-            .on_mouse_move(cx.listener(Self::page_mouse_move))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::page_mouse_up))
     }
 
     fn add_form_overlays(
@@ -124,6 +134,8 @@ impl EditorView {
                             ))
                             .label(if checked { "✓" } else { "" })
                             .disabled(item.field.read_only)
+                            .when(item.field.read_only, |button| button.cursor_not_allowed())
+                            .when(!item.field.read_only, |button| button.cursor_pointer())
                             .on_click(cx.listener(
                                 move |view, _, window, cx| {
                                     view.toggle_form_button(&name, window, cx);
@@ -158,7 +170,10 @@ impl EditorView {
             && let Some(rect) = self.drag.as_ref().and_then(DragState::rect)
             && !matches!(
                 self.tool,
-                super::model::Tool::Select | super::model::Tool::Highlight
+                super::model::Tool::Select
+                    | super::model::Tool::Highlight
+                    | super::model::Tool::Underline
+                    | super::model::Tool::Strikeout
             )
         {
             page = page.child(
@@ -211,6 +226,82 @@ impl EditorView {
                         positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0xcc11_1827)),
                     );
                 }
+                EditCommand::Underline {
+                    page_index: target,
+                    rects,
+                    color,
+                } if *target == page_index => {
+                    for rect in rects {
+                        let rect = overlay_rect(*rect, geometry, self.zoom);
+                        page = page.child(
+                            div()
+                                .absolute()
+                                .left(px(rect.left))
+                                .top(px(rect.top + rect.height - 2.0))
+                                .w(px(rect.width.max(1.0)))
+                                .h(px(2.0))
+                                .bg(rgb(color_to_u32(*color))),
+                        );
+                    }
+                }
+                EditCommand::StrikeOut {
+                    page_index: target,
+                    rects,
+                    color,
+                } if *target == page_index => {
+                    for rect in rects {
+                        let rect = overlay_rect(*rect, geometry, self.zoom);
+                        page = page.child(
+                            div()
+                                .absolute()
+                                .left(px(rect.left))
+                                .top(px(rect.top + rect.height / 2.0 - 1.0))
+                                .w(px(rect.width.max(1.0)))
+                                .h(px(2.0))
+                                .bg(rgb(color_to_u32(*color))),
+                        );
+                    }
+                }
+                EditCommand::Note {
+                    page_index: target,
+                    x,
+                    y,
+                    contents: _,
+                    color,
+                } if *target == page_index => {
+                    let (left, top) =
+                        overlay_point(document_core::PdfPoint::new(*x, *y), geometry, self.zoom);
+                    page = page.child(
+                        div()
+                            .absolute()
+                            .left(px(left))
+                            .top(px(top - 18.0))
+                            .size_5()
+                            .rounded_full()
+                            .bg(rgb(color_to_u32(*color)))
+                            .text_xs()
+                            .text_color(rgb(0x00ff_ffff))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child("•"),
+                    );
+                }
+                EditCommand::Shape {
+                    page_index: target,
+                    kind,
+                    rect,
+                    color,
+                    ..
+                } if *target == page_index => {
+                    let element = positioned(overlay_rect(*rect, geometry, self.zoom))
+                        .border_2()
+                        .border_color(rgb(color_to_u32(*color)));
+                    page = page.child(match kind {
+                        ShapeKind::Rectangle => element,
+                        ShapeKind::Ellipse => element.rounded_full(),
+                    });
+                }
                 EditCommand::AddText(stamp) if stamp.page_index == page_index => {
                     let (left, top) = overlay_point(
                         document_core::PdfPoint::new(stamp.x, stamp.y),
@@ -221,8 +312,8 @@ impl EditorView {
                         div()
                             .absolute()
                             .left(px(left))
-                            .top(px(top - ui_f32(stamp.size) * self.zoom))
-                            .text_size(px(ui_f32(stamp.size) * self.zoom))
+                            .top(px(top - display_text_size(stamp.size, self.zoom)))
+                            .text_size(px(display_text_size(stamp.size, self.zoom)))
                             .text_color(rgb(0x0000_0000))
                             .child(stamp.text.clone()),
                     );
@@ -249,13 +340,15 @@ impl EditorView {
         let geometry = self.pages[page_index].metadata.geometry;
         let (left, top) = overlay_point(inline.point, geometry, self.zoom);
         let zoom = self.zoom;
+        let scale = ui_f32(RENDER_SCALE) * zoom;
+        let font_size = display_text_size(14.0, zoom);
         page.child(
             div()
                 .absolute()
                 .left(px(left))
-                .top(px(top - 32.0 * zoom))
-                .w(px(224.0 * zoom))
-                .h(px(36.0 * zoom))
+                .top(px(top - 20.0 * scale))
+                .w(px(160.0 * scale))
+                .h(px(20.0 * scale))
                 .border_1()
                 .border_color(rgb(0x003b_82f6))
                 .occlude()
@@ -266,13 +359,17 @@ impl EditorView {
                         .absolute()
                         .left(px(0.0))
                         .top(px(0.0))
-                        .w(px(18.0 * zoom))
+                        .w(px(12.0 * scale))
                         .h_full()
                         .flex()
                         .items_center()
                         .justify_center()
-                        .cursor_move()
-                        .text_size(px(12.0 * zoom))
+                        .cursor(if matches!(self.drag, Some(DragState::InlineText { .. })) {
+                            CursorStyle::ClosedHand
+                        } else {
+                            CursorStyle::OpenHand
+                        })
+                        .text_size(px(10.0 * scale))
                         .text_color(rgb(0x003b_82f6))
                         .child("⠿")
                         .on_mouse_down(
@@ -285,17 +382,62 @@ impl EditorView {
                 .child(
                     div()
                         .absolute()
-                        .left(px(18.0 * zoom))
+                        .left(px(12.0 * scale))
                         .top(px(0.0))
                         .right(px(0.0))
                         .h_full()
                         .child(
                             Input::new(&inline.input)
+                                .with_size(Size::Size(px(font_size / 0.875)))
+                                .h_full()
+                                .px(px(2.0 * scale))
+                                .py(px(scale))
                                 .appearance(false)
                                 .bordered(false)
                                 .focus_bordered(false)
-                                .text_size(px(14.0 * zoom)),
+                                .text_size(px(font_size)),
                         ),
+                ),
+        )
+    }
+
+    fn add_inline_note(
+        &self,
+        page: gpui::Div,
+        page_index: usize,
+        _cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let Some(note) = self
+            .inline_note
+            .as_ref()
+            .filter(|note| note.page_index == page_index)
+        else {
+            return page;
+        };
+        let geometry = self.pages[page_index].metadata.geometry;
+        let (left, top) = overlay_point(note.point, geometry, self.zoom);
+        let scale = ui_f32(RENDER_SCALE) * self.zoom;
+        page.child(
+            div()
+                .absolute()
+                .left(px(left))
+                .top(px(top - 72.0 * scale))
+                .w(px(160.0 * scale))
+                .h(px(72.0 * scale))
+                .p(px(4.0 * scale))
+                .rounded_md()
+                .border_1()
+                .border_color(rgb(0x00f5_b942))
+                .bg(rgb(0x00ff_f8dc))
+                .occlude()
+                .child(
+                    Input::new(&note.input)
+                        .with_size(Size::Size(px(12.0 * scale / 0.875)))
+                        .size_full()
+                        .appearance(false)
+                        .bordered(false)
+                        .focus_bordered(false)
+                        .text_color(rgb(0x001f_2937)),
                 ),
         )
     }
@@ -311,6 +453,63 @@ impl EditorView {
                 .update(cx, |state, cx| state.set_value(next, window, cx));
             self.status = format!("Updated {name}").into();
             cx.notify();
+        }
+    }
+
+    fn page_cursor(&self) -> CursorStyle {
+        cursor_for_tool(self.tool, matches!(self.drag, Some(DragState::Pan { .. })))
+    }
+}
+
+fn cursor_for_tool(tool: Tool, panning: bool) -> CursorStyle {
+    if panning {
+        return CursorStyle::ClosedHand;
+    }
+
+    match tool {
+        Tool::Select
+        | Tool::Highlight
+        | Tool::Underline
+        | Tool::Strikeout
+        | Tool::AddText
+        | Tool::Note => CursorStyle::IBeam,
+        Tool::Hand => CursorStyle::OpenHand,
+        Tool::Shape | Tool::Redact => CursorStyle::Crosshair,
+    }
+}
+
+fn display_text_size(size: f64, zoom: f32) -> f32 {
+    ui_f32(size) * ui_f32(RENDER_SCALE) * zoom
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CursorStyle, Tool, cursor_for_tool, display_text_size};
+
+    #[test]
+    fn text_size_uses_raster_scale_and_zoom() {
+        assert!((display_text_size(14.0, 1.0) - 21.0).abs() < f32::EPSILON);
+        assert!((display_text_size(14.0, 2.0) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn page_cursor_matches_each_tool_and_pan_state() {
+        for tool in [
+            Tool::Select,
+            Tool::Highlight,
+            Tool::Underline,
+            Tool::Strikeout,
+            Tool::AddText,
+            Tool::Note,
+        ] {
+            assert_eq!(cursor_for_tool(tool, false), CursorStyle::IBeam);
+        }
+
+        assert_eq!(cursor_for_tool(Tool::Hand, false), CursorStyle::OpenHand);
+        assert_eq!(cursor_for_tool(Tool::Hand, true), CursorStyle::ClosedHand);
+
+        for tool in [Tool::Shape, Tool::Redact] {
+            assert_eq!(cursor_for_tool(tool, false), CursorStyle::Crosshair);
         }
     }
 }
@@ -331,4 +530,9 @@ fn highlight_preview(color: (f64, f64, f64)) -> gpui::Rgba {
         b: color.2 as f32,
         a: 0.35,
     }
+}
+
+fn color_to_u32(color: (f64, f64, f64)) -> u32 {
+    let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (channel(color.0) << 16) | (channel(color.1) << 8) | channel(color.2)
 }

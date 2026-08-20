@@ -1,7 +1,7 @@
 use pdf_engine::{
     DocumentMetadata, EditCommand, EngineError, EngineErrorKind, FormField, FormFieldKind,
     FormWidget, PageMetadata, PdfEditor, PdfReader, PdfRenderer, RenderRequest, RenderedPage,
-    TextFragment,
+    ShapeKind, TextFragment,
 };
 use std::io::Cursor;
 use zpdf::{ContentInterpreter, ImageCache, RenderBackend, TextSpan};
@@ -208,7 +208,83 @@ fn apply_edit(writer: &mut IncrementalWriter, edit: &EditCommand) -> Result<(), 
                 .map(|_| ())
                 .map_err(map_write_error)
         }
+        EditCommand::Underline {
+            page_index,
+            rects,
+            color,
+        } => add_markup(writer, *page_index, rects, MarkupKind::Underline, *color),
+        EditCommand::StrikeOut {
+            page_index,
+            rects,
+            color,
+        } => add_markup(writer, *page_index, rects, MarkupKind::StrikeOut, *color),
+        EditCommand::Note {
+            page_index,
+            x,
+            y,
+            contents,
+            color,
+        } => writer
+            .add_annotation(
+                *page_index,
+                &AnnotationSpec::Note {
+                    x: *x,
+                    y: *y,
+                    contents: contents.clone(),
+                    color: Some(*color),
+                    icon: Some("Comment".to_owned()),
+                },
+            )
+            .map(|_| ())
+            .map_err(map_write_error),
+        EditCommand::Shape {
+            page_index,
+            kind,
+            rect,
+            color,
+            width,
+        } => {
+            let rect = zpdf::Rect::new(rect.x_min, rect.y_min, rect.x_max, rect.y_max);
+            let spec = match kind {
+                ShapeKind::Rectangle => AnnotationSpec::Square {
+                    rect,
+                    color: *color,
+                    interior: None,
+                    width: *width,
+                },
+                ShapeKind::Ellipse => AnnotationSpec::Circle {
+                    rect,
+                    color: *color,
+                    interior: None,
+                    width: *width,
+                },
+            };
+            writer
+                .add_annotation(*page_index, &spec)
+                .map(|_| ())
+                .map_err(map_write_error)
+        }
     }
+}
+
+fn add_markup(
+    writer: &mut IncrementalWriter,
+    page_index: usize,
+    rects: &[document_core::PdfRect],
+    kind: MarkupKind,
+    color: (f64, f64, f64),
+) -> Result<(), EngineError> {
+    let rects: Vec<_> = rects
+        .iter()
+        .map(|rect| zpdf::Rect::new(rect.x_min, rect.y_min, rect.x_max, rect.y_max))
+        .collect();
+    writer
+        .add_annotation(
+            page_index,
+            &AnnotationSpec::markup_from_rects(kind, &rects, color, None),
+        )
+        .map(|_| ())
+        .map_err(map_write_error)
 }
 
 fn encode_pdf_string(value: &str) -> Vec<u8> {

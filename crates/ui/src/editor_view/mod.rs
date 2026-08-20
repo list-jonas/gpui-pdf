@@ -18,7 +18,7 @@ use gpui::{
     AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Window,
 };
 use gpui_component::input::InputState;
-use pdf_engine::{EditCommand, FormField};
+use pdf_engine::{EditCommand, FormField, ShapeKind};
 
 use crate::field_input::FieldInput;
 use crate::page_image::render_image;
@@ -26,7 +26,7 @@ use crate::{EditorRequest, EditorUpdate};
 
 use self::document_io::file_name;
 use self::document_page::DocumentPage;
-use self::model::{DragState, InlineText, SearchMatch, Tool};
+use self::model::{DragState, InlineNote, InlineText, SearchMatch, Tool};
 
 pub struct EditorView {
     requests: Sender<EditorRequest>,
@@ -49,7 +49,10 @@ pub struct EditorView {
     selected_rects: Vec<PdfRect>,
     selected_text: SharedString,
     inline_text: Option<InlineText>,
+    inline_note: Option<InlineNote>,
     highlight_color: (f64, f64, f64),
+    annotation_color: (f64, f64, f64),
+    shape_kind: ShapeKind,
     search_input: Entity<InputState>,
     _search_subscription: Subscription,
     search_query: String,
@@ -104,7 +107,10 @@ impl EditorView {
             selected_rects: Vec::new(),
             selected_text: "No text selected".into(),
             inline_text: None,
+            inline_note: None,
             highlight_color: (1.0, 0.86, 0.2),
+            annotation_color: (0.23, 0.51, 0.96),
+            shape_kind: ShapeKind::Rectangle,
             search_input,
             _search_subscription: search_subscription,
             search_query: String::new(),
@@ -135,6 +141,7 @@ impl EditorView {
                 self.drag = None;
                 self.selected_rects.clear();
                 self.inline_text = None;
+                self.inline_note = None;
                 self.search_query.clear();
                 self.search_matches.clear();
                 self.search_index = 0;
@@ -235,6 +242,20 @@ pub(super) fn input(
 ) -> Entity<InputState> {
     cx.new(|cx| {
         InputState::new(window, cx)
+            .placeholder(placeholder.to_owned())
+            .default_value(default.to_owned())
+    })
+}
+
+pub(super) fn inline_text_input(
+    placeholder: &str,
+    default: &str,
+    window: &mut Window,
+    cx: &mut Context<EditorView>,
+) -> Entity<InputState> {
+    cx.new(|cx| {
+        InputState::new(window, cx)
+            .multi_line(true)
             .placeholder(placeholder.to_owned())
             .default_value(default.to_owned())
     })

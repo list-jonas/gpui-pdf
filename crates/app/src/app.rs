@@ -5,9 +5,10 @@ use gpui::{
 };
 use gpui_component::{Root, Theme, ThemeMode, TitleBar};
 use ui::{
-    ActualSize, AddTextTool, CommitText, CopySelection, EditorRequest, EditorView, FitPage,
-    HandTool, HighlightTool, NextPage, NextSearchResult, OpenDocument, PreviousPage,
-    PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, CommitNote, CommitText, CopySelection, EditorRequest, EditorView,
+    FitPage, HandTool, HighlightTool, NextPage, NextSearchResult, NoteTool, OpenDocument,
+    PreviousPage, PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool, ShapeTool,
+    StrikeoutTool, UnderlineTool, ZoomIn, ZoomOut,
 };
 
 use crate::session;
@@ -47,13 +48,18 @@ pub fn run() {
             KeyBinding::new("v", SelectTool, Some("PdfEditor")),
             KeyBinding::new("h", HandTool, Some("PdfEditor")),
             KeyBinding::new("u", HighlightTool, Some("PdfEditor")),
+            KeyBinding::new("cmd-u", UnderlineTool, Some("PdfEditor")),
+            KeyBinding::new("cmd-shift-x", StrikeoutTool, Some("PdfEditor")),
             KeyBinding::new("t", AddTextTool, Some("PdfEditor")),
+            KeyBinding::new("n", NoteTool, Some("PdfEditor")),
+            KeyBinding::new("g", ShapeTool, Some("PdfEditor")),
             KeyBinding::new("r", RedactTool, Some("PdfEditor")),
             KeyBinding::new("cmd-=", ZoomIn, Some("PdfEditor")),
             KeyBinding::new("cmd--", ZoomOut, Some("PdfEditor")),
             KeyBinding::new("cmd-0", FitPage, Some("PdfEditor")),
             KeyBinding::new("cmd-1", ActualSize, Some("PdfEditor")),
             KeyBinding::new("cmd-enter", CommitText, Some("PdfEditor")),
+            KeyBinding::new("cmd-shift-enter", CommitNote, Some("PdfEditor")),
             KeyBinding::new("cmd-c", CopySelection, Some("PdfEditor")),
             KeyBinding::new("cmd-f", Search, Some("PdfEditor")),
             KeyBinding::new("cmd-g", NextSearchResult, Some("PdfEditor")),
@@ -124,10 +130,15 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Select Text", SelectTool),
                 MenuItem::action("Hand / Pan", HandTool),
                 MenuItem::action("Highlight Text", HighlightTool),
+                MenuItem::action("Underline Text", UnderlineTool),
+                MenuItem::action("Strike Out Text", StrikeoutTool),
                 MenuItem::action("Add Text", AddTextTool),
+                MenuItem::action("Add Comment", NoteTool),
+                MenuItem::action("Draw Shape", ShapeTool),
                 MenuItem::action("Redact", RedactTool),
                 MenuItem::separator(),
                 MenuItem::action("Commit Text", CommitText),
+                MenuItem::action("Commit Comment", CommitNote),
                 MenuItem::action("Copy Selection", CopySelection),
             ],
         },

@@ -7,9 +7,10 @@ use gpui_component::button::Button;
 use gpui_component::scroll::ScrollableElement;
 
 use crate::EditorView;
-use crate::actions::CommitText;
+use crate::actions::{CommitNote, CommitText};
 
-use super::model::Tool;
+use super::model::{Tool, shape_label};
+use pdf_engine::ShapeKind;
 
 impl EditorView {
     pub(super) fn render_properties(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -99,16 +100,54 @@ impl EditorView {
                             cx,
                         )),
                 ),
+            Tool::Underline | Tool::Strikeout => panel
+                .child("Drag across text. Markup follows extracted text runs.")
+                .child(self.annotation_color_buttons(cx)),
             Tool::AddText => panel
                 .child("Click page, type directly over PDF, then commit.")
                 .child(
                     Button::new("commit-text")
                         .label("Commit text")
                         .disabled(self.inline_text.is_none())
+                        .when(self.inline_text.is_some(), |button| button.cursor_pointer())
+                        .when(self.inline_text.is_none(), |button| {
+                            button.cursor_not_allowed()
+                        })
                         .on_click(cx.listener(|view, _, window, cx| {
                             view.commit_text(&CommitText, window, cx);
                         })),
                 ),
+            Tool::Note => panel
+                .child("Click page, write comment, then commit.")
+                .child(
+                    Button::new("commit-note")
+                        .label("Commit comment")
+                        .disabled(self.inline_note.is_none())
+                        .on_click(cx.listener(|view, _, window, cx| {
+                            view.commit_note(&CommitNote, window, cx);
+                        })),
+                )
+                .child(self.annotation_color_buttons(cx)),
+            Tool::Shape => panel
+                .child(format!("Draw {} on page.", shape_label(self.shape_kind)))
+                .child(
+                    div()
+                        .flex()
+                        .gap_2()
+                        .child(Self::shape_button(
+                            "rectangle",
+                            "Rectangle",
+                            ShapeKind::Rectangle,
+                            cx,
+                        ))
+                        .child(Self::shape_button(
+                            "ellipse",
+                            "Ellipse",
+                            ShapeKind::Ellipse,
+                            cx,
+                        )),
+                )
+                .child(self.annotation_color_buttons(cx)),
             Tool::Redact => panel
                 .child("Drag a rectangle over content. Save As applies permanent redaction.")
                 .child(
@@ -137,5 +176,57 @@ impl EditorView {
             .border_color(rgb(0x0090_9499))
             .cursor_pointer()
             .on_click(cx.listener(move |view, _, _, cx| view.set_highlight_color(value, cx)))
+    }
+
+    fn annotation_color_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .flex()
+            .gap_2()
+            .child(Self::annotation_color_button(
+                "annotation-blue",
+                0x003b_82f6,
+                (0.23, 0.51, 0.96),
+                cx,
+            ))
+            .child(Self::annotation_color_button(
+                "annotation-red",
+                0x00ef_4444,
+                (0.94, 0.27, 0.27),
+                cx,
+            ))
+            .child(Self::annotation_color_button(
+                "annotation-green",
+                0x0022_c55e,
+                (0.13, 0.65, 0.32),
+                cx,
+            ))
+    }
+
+    fn annotation_color_button(
+        id: &'static str,
+        color: u32,
+        value: (f64, f64, f64),
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        div()
+            .id(id)
+            .size_8()
+            .rounded_full()
+            .bg(rgb(color))
+            .border_1()
+            .border_color(rgb(0x0090_9499))
+            .cursor_pointer()
+            .on_click(cx.listener(move |view, _, _, cx| view.set_annotation_color(value, cx)))
+    }
+
+    fn shape_button(
+        id: &'static str,
+        label: &'static str,
+        kind: ShapeKind,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        Button::new(id)
+            .label(label)
+            .on_click(cx.listener(move |view, _, _, cx| view.set_shape_kind(kind, cx)))
     }
 }

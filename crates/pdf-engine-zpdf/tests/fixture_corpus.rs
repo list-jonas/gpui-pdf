@@ -1,7 +1,7 @@
 use document_core::PdfRect;
 use pdf_engine::{
     EditCommand, EngineError, EngineErrorKind, OpenRequest, Password, PdfDocument, PdfEngine,
-    RenderRequest, TextStamp,
+    RenderRequest, ShapeKind, TextStamp,
 };
 use pdf_engine_zpdf::ZpdfEngine;
 use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, text_pdf};
@@ -160,6 +160,70 @@ fn highlight_annotation_round_trips() {
             .iter()
             .any(|annotation| annotation.subtype == "Highlight")
     );
+    let mut reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+    assert!(
+        reopened
+            .render_page(RenderRequest {
+                page_index: 0,
+                scale: 1.0,
+            })
+            .unwrap()
+            .is_valid()
+    );
+}
+
+#[test]
+fn review_annotations_round_trip_with_expected_subtypes() {
+    let mut document = ZpdfEngine.open(OpenRequest::new(text_pdf())).unwrap();
+    let output = document
+        .export(&[
+            EditCommand::Underline {
+                page_index: 0,
+                rects: vec![PdfRect::new(18.0, 45.0, 115.0, 66.0).unwrap()],
+                color: (0.23, 0.51, 0.96),
+            },
+            EditCommand::StrikeOut {
+                page_index: 0,
+                rects: vec![PdfRect::new(18.0, 45.0, 115.0, 66.0).unwrap()],
+                color: (0.94, 0.27, 0.27),
+            },
+            EditCommand::Note {
+                page_index: 0,
+                x: 30.0,
+                y: 90.0,
+                contents: "Review this section".to_owned(),
+                color: (0.13, 0.65, 0.32),
+            },
+            EditCommand::Shape {
+                page_index: 0,
+                kind: ShapeKind::Rectangle,
+                rect: PdfRect::new(20.0, 20.0, 100.0, 40.0).unwrap(),
+                color: (0.23, 0.51, 0.96),
+                width: 2.0,
+            },
+            EditCommand::Shape {
+                page_index: 0,
+                kind: ShapeKind::Ellipse,
+                rect: PdfRect::new(120.0, 20.0, 180.0, 55.0).unwrap(),
+                color: (0.94, 0.27, 0.27),
+                width: 2.0,
+            },
+        ])
+        .unwrap();
+    let native = NativeDocument::open(output.clone()).unwrap();
+    let page = native.page(0).unwrap();
+    let annotations = native.page_annotations(&page);
+    let subtypes: Vec<_> = annotations
+        .iter()
+        .map(|annotation| annotation.subtype.as_str())
+        .collect();
+
+    for expected in ["Underline", "StrikeOut", "Text", "Square", "Circle"] {
+        assert!(
+            subtypes.contains(&expected),
+            "missing {expected} annotation"
+        );
+    }
     let mut reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
     assert!(
         reopened
