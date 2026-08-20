@@ -287,12 +287,12 @@ impl EditorView {
             .iter()
             .map(|fragment| fragment.rect)
             .collect();
-        self.selected_text = page
+        let selection: Vec<_> = page
             .fragments
             .iter()
-            .map(|fragment| fragment.text.as_str())
-            .collect::<String>()
-            .into();
+            .map(|fragment| (fragment.rect, fragment.text.clone()))
+            .collect();
+        self.selected_text = join_selection(&selection).into();
         self.flash(
             format!("Selected {} characters", self.selected_text.chars().count()),
             Severity::Info,
@@ -958,11 +958,7 @@ impl EditorView {
         };
         let selection = text_selection(&page.fragments, start, current);
         self.selected_rects = selection.iter().map(|(rect, _)| *rect).collect();
-        self.selected_text = selection
-            .iter()
-            .map(|(_, text)| text.as_str())
-            .collect::<String>()
-            .into();
+        self.selected_text = join_selection(&selection).into();
         if self.selected_rects.is_empty() {
             self.selected_text = "No text selected".into();
         }
@@ -1169,6 +1165,31 @@ fn point_distance(rect: document_core::PdfRect, point: document_core::PdfPoint) 
     (point.x - x).powi(2) + (point.y - y).powi(2)
 }
 
+/// PDF text runs carry no spaces, so word and line breaks are reconstructed
+/// from the geometry of neighbouring runs.
+fn join_selection(selection: &[(document_core::PdfRect, String)]) -> String {
+    let mut text = String::new();
+    let mut previous: Option<document_core::PdfRect> = None;
+    for (rect, fragment) in selection {
+        if let Some(last) = previous {
+            let line_height = (last.y_max - last.y_min).max(1.0);
+            if (last.y_min - rect.y_min).abs() > line_height * 0.5 {
+                text.push('\n');
+            } else {
+                let gap = rect.x_min - last.x_max;
+                let space = (last.y_max - last.y_min) * 0.22;
+                let ends_open = text.ends_with(|c: char| c.is_whitespace() || c == '-');
+                if gap > space && !ends_open && !fragment.starts_with(char::is_whitespace) {
+                    text.push(' ');
+                }
+            }
+        }
+        text.push_str(fragment);
+        previous = Some(*rect);
+    }
+    text
+}
+
 /// Pages away from the visible range, used for eviction order.
 fn distance(viewport: Viewport, page_index: usize) -> u32 {
     let before = viewport.first_visible.saturating_sub(page_index);
@@ -1181,7 +1202,7 @@ mod tests {
     use document_core::{PdfPoint, PdfRect};
     use pdf_engine::TextFragment;
 
-    use super::{MAX_ZOOM, MIN_ZOOM, next_zoom_step, text_selection};
+    use super::{MAX_ZOOM, MIN_ZOOM, join_selection, next_zoom_step, text_selection};
 
     #[test]
     fn text_selection_preserves_complete_fragment_text() {
@@ -1241,5 +1262,41 @@ mod tests {
             PdfPoint::new(40.0, 5.0),
         );
         assert_eq!(near.len(), 1);
+    }
+
+    #[test]
+    fn selection_reconstructs_spaces_and_line_breaks() {
+        let selection = vec![
+            (
+                PdfRect::new(0.0, 100.0, 40.0, 110.0).unwrap(),
+                "Hello".to_owned(),
+            ),
+            (
+                PdfRect::new(46.0, 100.0, 90.0, 110.0).unwrap(),
+                "world".to_owned(),
+            ),
+            (
+                PdfRect::new(0.0, 86.0, 30.0, 96.0).unwrap(),
+                "next".to_owned(),
+            ),
+        ];
+
+        assert_eq!(join_selection(&selection), "Hello world\nnext");
+    }
+
+    #[test]
+    fn selection_keeps_tight_runs_as_one_word() {
+        let selection = vec![
+            (
+                PdfRect::new(0.0, 100.0, 20.0, 110.0).unwrap(),
+                "Zusammen".to_owned(),
+            ),
+            (
+                PdfRect::new(20.2, 100.0, 40.0, 110.0).unwrap(),
+                "fassung".to_owned(),
+            ),
+        ];
+
+        assert_eq!(join_selection(&selection), "Zusammenfassung");
     }
 }
