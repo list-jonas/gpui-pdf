@@ -48,11 +48,6 @@ pub fn ui_f32(value: f64) -> f32 {
     value as f32
 }
 
-#[allow(clippy::cast_precision_loss)]
-pub fn raster_f32(value: u32) -> f32 {
-    value as f32
-}
-
 fn transform(geometry: PageGeometry, zoom: f32) -> ViewportTransform {
     ViewportTransform::new(geometry, f64::from(zoom), RENDER_SCALE)
         .expect("validated viewport scale")

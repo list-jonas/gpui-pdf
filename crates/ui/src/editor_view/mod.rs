@@ -9,6 +9,7 @@ mod layout;
 mod model;
 mod page_canvas;
 mod properties;
+mod schedule;
 mod search;
 
 use std::path::PathBuf;
@@ -52,6 +53,12 @@ pub struct EditorView {
     pdf_version: (u8, u8),
     pages: Vec<DocumentPage>,
     loaded_pages: usize,
+    /// Identifies the open document, so late results from a previous file are
+    /// discarded instead of painted over the current one.
+    token: u64,
+    /// Set once the viewport is satisfied and the rest of the document is
+    /// being filled in behind the scenes.
+    background_requested: bool,
     focus_handle: FocusHandle,
     scroll: ScrollHandle,
     forms: Vec<FieldInput>,
@@ -145,6 +152,8 @@ impl EditorView {
             pdf_version: (0, 0),
             pages: Vec::new(),
             loaded_pages: 0,
+            token: 0,
+            background_requested: false,
             focus_handle,
             scroll: ScrollHandle::new(),
             forms: Vec::new(),
@@ -175,80 +184,55 @@ impl EditorView {
 
     fn apply(&mut self, update: EditorUpdate, window: &mut Window, cx: &mut Context<Self>) {
         match update {
-            EditorUpdate::Opened(opened) => {
-                let crate::OpenedDocument {
-                    path,
-                    document,
-                    pages,
-                    forms,
-                    initial_page,
-                } = *opened;
-                self.path = Some(path.clone());
-                self.page_index = initial_page;
-                self.page_count = document.page_count;
-                self.pdf_version = document.pdf_version;
-                self.pages = pages.into_iter().map(DocumentPage::placeholder).collect();
-                self.loaded_pages = 0;
-                self.busy = true;
-                self.severity = Severity::Info;
-                self.status = format!("Loading {} pages…", document.page_count).into();
-                self.detail = None;
-                self.extracted_text = None;
-                self.drag = None;
-                self.selected_rects.clear();
-                self.selected_text = "No text selected".into();
-                self.inline_text = None;
-                self.inline_note = None;
-                self.search_query.clear();
-                self.search_matches.clear();
-                self.search_index = 0;
-                self.search_input
-                    .update(cx, |input, cx| input.set_value("", window, cx));
-                self.sync_page_input(window, cx);
-                window.set_window_title(&file_name(&path));
-                window.set_window_edited(false);
-                self.forms = forms
-                    .into_iter()
-                    .map(|field| {
-                        let value = self.pending_form_value(&field);
-                        FieldInput {
-                            input: input(&field.name, &value, window, cx),
-                            field,
-                        }
-                    })
-                    .collect();
-                self.scroll.scroll_to_top_of_item(initial_page);
-                self.refresh_active_page();
-            }
-            EditorUpdate::PageLoaded(loaded) => {
-                let crate::LoadedPage {
-                    page,
-                    rendered,
-                    text,
-                    fragments,
-                } = *loaded;
-                let image_size = (rendered.width, rendered.height);
-                if let Some(target) = self.pages.get_mut(page.index) {
+            EditorUpdate::Opened(opened) => self.open_document(*opened, window, cx),
+            EditorUpdate::PageRendered {
+                token,
+                page_index,
+                scale,
+                kind,
+                rendered,
+            } => {
+                if token != self.token {
+                    return;
+                }
+                let preview = kind == crate::PageKind::Preview;
+                let bytes = u64::from(rendered.width) * u64::from(rendered.height) * 4;
+                if let Some(target) = self.pages.get_mut(page_index) {
                     let was_loaded = target.image.is_some();
-                    target.load(render_image(rendered), image_size, text, fragments);
-                    if !was_loaded {
+                    target.set_rendered_image(render_image(rendered), scale, preview, bytes);
+                    if !was_loaded && target.image.is_some() {
                         self.loaded_pages += 1;
                     }
                 }
                 if self.loaded_pages >= self.page_count {
                     self.busy = false;
                 }
+                self.evict_distant_pages();
+                self.refresh_active_page();
+            }
+            EditorUpdate::PageText {
+                token,
+                page_index,
+                text,
+                fragments,
+            } => {
+                if token != self.token {
+                    return;
+                }
+                if let Some(target) = self.pages.get_mut(page_index) {
+                    target.load_text(text, fragments);
+                }
                 self.refresh_search(cx, true);
                 self.refresh_active_page();
             }
-            EditorUpdate::PageRerendered {
-                page_index,
-                scale,
-                rendered,
-            } => {
-                if let Some(target) = self.pages.get_mut(page_index) {
-                    target.set_rendered_image(render_image(rendered), scale);
+            EditorUpdate::Idle { token } => {
+                if token != self.token {
+                    return;
                 }
+                // The viewport is satisfied, so fill in the rest of the document
+                // for search, thumbnails and fast jumps.
+                self.busy = false;
+                self.request_remaining_pages();
             }
             EditorUpdate::Saved(path) => {
                 self.history.clear();
@@ -262,6 +246,63 @@ impl EditorView {
             }
         }
         cx.notify();
+    }
+
+    /// Resets every per-document piece of state and starts loading the pages
+    /// the reader will see first.
+    fn open_document(
+        &mut self,
+        opened: crate::OpenedDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let crate::OpenedDocument {
+            token,
+            path,
+            document,
+            pages,
+            forms,
+            initial_page,
+        } = opened;
+        self.token = token;
+        self.background_requested = false;
+        self.path = Some(path.clone());
+        self.page_index = initial_page;
+        self.page_count = document.page_count;
+        self.pdf_version = document.pdf_version;
+        self.pages = pages.into_iter().map(DocumentPage::placeholder).collect();
+        self.loaded_pages = 0;
+        self.busy = true;
+        self.severity = Severity::Info;
+        self.status = format!("Loading {} pages…", document.page_count).into();
+        self.detail = None;
+        self.extracted_text = None;
+        self.drag = None;
+        self.selected_rects.clear();
+        self.selected_text = "No text selected".into();
+        self.inline_text = None;
+        self.inline_note = None;
+        self.search_query.clear();
+        self.search_matches.clear();
+        self.search_index = 0;
+        self.search_input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.sync_page_input(window, cx);
+        window.set_window_title(&file_name(&path));
+        window.set_window_edited(false);
+        self.forms = forms
+            .into_iter()
+            .map(|field| {
+                let value = self.pending_form_value(&field);
+                FieldInput {
+                    input: input(&field.name, &value, window, cx),
+                    field,
+                }
+            })
+            .collect();
+        self.scroll.scroll_to_top_of_item(initial_page);
+        self.refresh_active_page();
+        self.request_visible_pages();
     }
 
     /// Shows a message in the status bar and restores the document summary

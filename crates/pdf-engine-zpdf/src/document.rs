@@ -10,6 +10,7 @@ use zpdf_writer::{
     StampItem, rewrite_pdf,
 };
 
+use crate::cache::{PageCache, RenderedContent};
 use crate::convert::{map_engine_error, map_render_error, page_geometry};
 
 const FF_READ_ONLY: i64 = 1;
@@ -18,6 +19,7 @@ pub struct ZpdfDocument {
     inner: zpdf::PdfDocument,
     source: Vec<u8>,
     password: Vec<u8>,
+    cache: PageCache,
 }
 
 impl ZpdfDocument {
@@ -26,6 +28,7 @@ impl ZpdfDocument {
             inner,
             source,
             password,
+            cache: PageCache::new(),
         }
     }
 
@@ -63,6 +66,7 @@ impl PdfEditor for ZpdfDocument {
     }
 
     fn export(&mut self, edits: &[EditCommand]) -> Result<Vec<u8>, EngineError> {
+        self.cache.clear();
         let has_redactions = edits
             .iter()
             .any(|edit| matches!(edit, EditCommand::Redact { .. }));
@@ -319,13 +323,14 @@ impl PdfReader for ZpdfDocument {
     }
 
     fn extract_text(&mut self, page_index: usize) -> Result<String, EngineError> {
-        Ok(zpdf::spans_to_text(self.extract_spans(page_index)?, 2.0))
+        let spans = self.page_spans(page_index)?.to_vec();
+        Ok(zpdf::spans_to_text(spans, 2.0))
     }
 
     fn text_fragments(&mut self, page_index: usize) -> Result<Vec<TextFragment>, EngineError> {
         Ok(self
-            .extract_spans(page_index)?
-            .into_iter()
+            .page_spans(page_index)?
+            .iter()
             .filter(|span| !span.text.trim().is_empty())
             .filter_map(|span| {
                 let x0 = span.x.min(span.x + span.advance);
@@ -334,7 +339,7 @@ impl PdfReader for ZpdfDocument {
                 document_core::PdfRect::new(x0, span.y - size * 0.25, x1, span.y + size * 0.8)
                     .ok()
                     .map(|rect| TextFragment {
-                        text: span.text,
+                        text: span.text.clone(),
                         rect,
                     })
             })
@@ -343,7 +348,17 @@ impl PdfReader for ZpdfDocument {
 }
 
 impl ZpdfDocument {
-    fn extract_spans(&mut self, page_index: usize) -> Result<Vec<TextSpan>, EngineError> {
+    /// Text spans for a page, interpreted once and reused by both the plain-text
+    /// and geometry-carrying extractors.
+    fn page_spans(&mut self, page_index: usize) -> Result<&[TextSpan], EngineError> {
+        if self.cache.spans(page_index).is_some() {
+            return Ok(self.cache.spans(page_index).expect("cached above"));
+        }
+        let spans = self.interpret_spans(page_index)?;
+        Ok(self.cache.insert_spans(page_index, spans))
+    }
+
+    fn interpret_spans(&mut self, page_index: usize) -> Result<Vec<TextSpan>, EngineError> {
         let page = self.page(page_index)?;
         let mut fonts = self.inner.load_page_fonts(&page);
         let mut images = ImageCache::new();
@@ -370,7 +385,38 @@ impl PdfRenderer for ZpdfDocument {
                 "render scale must be finite and positive",
             ));
         }
-        let page = self.page(request.page_index)?;
+        let limits = self.inner.file().limits().clone();
+        let content = self.page_content(request.page_index)?;
+        let rendered = zpdf::cpu::CpuRenderer::new()
+            .with_limits(&limits)
+            .with_fonts(&content.fonts)
+            .with_images(&content.images)
+            .render_display_list(&content.display_list, request.scale)
+            .map_err(|error| map_render_error(&error))?;
+        let page = RenderedPage::new(rendered.width, rendered.height, rendered.data);
+        if !page.is_valid() {
+            return Err(EngineError::new(
+                EngineErrorKind::Rendering,
+                "renderer returned an invalid RGBA buffer",
+            ));
+        }
+        Ok(page)
+    }
+}
+
+impl ZpdfDocument {
+    /// Interpreted page content, cached so re-rendering at a new scale only
+    /// re-rasterises instead of reparsing fonts, images and operators.
+    fn page_content(&mut self, page_index: usize) -> Result<&RenderedContent, EngineError> {
+        if self.cache.content(page_index).is_some() {
+            return Ok(self.cache.content(page_index).expect("cached above"));
+        }
+        let content = self.interpret_content(page_index)?;
+        Ok(self.cache.insert_content(page_index, content))
+    }
+
+    fn interpret_content(&mut self, page_index: usize) -> Result<RenderedContent, EngineError> {
+        let page = self.page(page_index)?;
         let mut fonts = self.inner.load_page_fonts(&page);
         let mut images = ImageCache::new();
         let content = self
@@ -385,19 +431,10 @@ impl PdfRenderer for ZpdfDocument {
             .with_images(&mut images)
             .with_annotations(&annotations)
             .interpret(&content);
-        let rendered = zpdf::cpu::CpuRenderer::new()
-            .with_limits(self.inner.file().limits())
-            .with_fonts(&fonts)
-            .with_images(&images)
-            .render_display_list(&display_list, request.scale)
-            .map_err(|error| map_render_error(&error))?;
-        let page = RenderedPage::new(rendered.width, rendered.height, rendered.data);
-        if !page.is_valid() {
-            return Err(EngineError::new(
-                EngineErrorKind::Rendering,
-                "renderer returned an invalid RGBA buffer",
-            ));
-        }
-        Ok(page)
+        Ok(RenderedContent {
+            fonts,
+            images,
+            display_list,
+        })
     }
 }

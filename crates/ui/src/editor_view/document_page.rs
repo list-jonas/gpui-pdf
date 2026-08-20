@@ -18,6 +18,14 @@ pub struct DocumentPage {
     pub render_scale: f32,
     /// Scale already requested, so identical requests are not repeated.
     pub requested_scale: f32,
+    /// True while the visible image is a cheap low-resolution stand-in.
+    pub preview: bool,
+    /// Set once page text has been extracted, so it is requested only once.
+    pub text_loaded: bool,
+    /// Set while text extraction is queued for this page.
+    pub text_requested: bool,
+    /// Approximate bytes held by the current raster, for the memory budget.
+    pub image_bytes: u64,
 }
 
 impl DocumentPage {
@@ -29,32 +37,50 @@ impl DocumentPage {
             text: SharedString::default(),
             fragments: Vec::new(),
             bounds: Rc::new(Cell::new(Bounds::default())),
-            render_scale: super::geometry::ui_f32(super::geometry::RENDER_SCALE),
-            requested_scale: super::geometry::ui_f32(super::geometry::RENDER_SCALE),
+            render_scale: 0.0,
+            requested_scale: 0.0,
+            preview: true,
+            text_loaded: false,
+            text_requested: false,
+            image_bytes: 0,
         }
     }
 
-    pub fn load(
-        &mut self,
-        image: Option<Arc<RenderImage>>,
-        image_size: (u32, u32),
-        text: String,
-        fragments: Vec<TextFragment>,
-    ) {
-        self.image = image;
-        self.image_size = (
-            super::geometry::raster_f32(image_size.0),
-            super::geometry::raster_f32(image_size.1),
-        );
+    pub fn load_text(&mut self, text: String, fragments: Vec<TextFragment>) {
         self.text = text.into();
         self.fragments = fragments;
+        self.text_loaded = true;
+        self.text_requested = false;
     }
 
-    /// Swaps in a sharper raster without disturbing layout or text geometry.
-    pub fn set_rendered_image(&mut self, image: Option<Arc<RenderImage>>, scale: f32) {
-        if image.is_some() {
-            self.image = image;
-            self.render_scale = scale;
+    /// Swaps in a new raster without disturbing layout or text geometry. A
+    /// preview never replaces a sharper image that already arrived.
+    pub fn set_rendered_image(
+        &mut self,
+        image: Option<Arc<RenderImage>>,
+        scale: f32,
+        preview: bool,
+        bytes: u64,
+    ) {
+        if image.is_none() {
+            return;
         }
+        if self.image.is_some() && scale < self.render_scale {
+            return;
+        }
+        self.image = image;
+        self.render_scale = scale;
+        self.preview = preview;
+        self.image_bytes = bytes;
+    }
+
+    /// Frees the raster of a page far from the viewport. Layout is untouched,
+    /// so nothing moves when the page is rendered again on the way back.
+    pub fn release_image(&mut self) {
+        self.image = None;
+        self.image_bytes = 0;
+        self.render_scale = 0.0;
+        self.requested_scale = 0.0;
+        self.preview = true;
     }
 }

@@ -3,30 +3,47 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
-use pdf_engine::{DocumentMetadata, OpenRequest, PageMetadata, RenderRequest, RenderedPage};
+use pdf_engine::{DocumentMetadata, OpenRequest, PageMetadata, PdfEngine};
 use pdf_engine_zpdf::ZpdfEngine;
-use rendering::{DocumentCommand, DocumentEvent, DocumentWorker};
-use ui::{EditorRequest, EditorUpdate, LoadedPage, OpenedDocument};
+use rendering::{
+    DocumentCommand, DocumentEvent, DocumentWorker, JobKind, PoolEvent, RenderJob, RenderPool,
+};
+use ui::{EditorRequest, EditorUpdate, OpenedDocument, PageKind, PageRequest};
+
+/// Rasterising is CPU-bound, so a few workers hide per-page latency without
+/// starving the UI thread or the machine.
+const MAX_RENDER_WORKERS: usize = 4;
 
 pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
     std::thread::spawn(move || {
         let mut open: Option<OpenDocumentSession> = None;
+        let mut token = 0_u64;
         while let Ok(request) = requests.recv_blocking() {
             let result = match request {
-                EditorRequest::Open(path) => load(&path, 0, &updates).map(|session| {
-                    open = Some(session);
-                }),
-                EditorRequest::RenderPage { page_index, scale } => {
-                    rerender(open.as_ref(), page_index, scale, &updates)
+                EditorRequest::Open(path) => {
+                    token += 1;
+                    // Dropping the old session stops its workers before the new
+                    // document starts competing for cores.
+                    open = None;
+                    load(&path, 0, token, &updates).map(|session| {
+                        open = Some(session);
+                    })
+                }
+                EditorRequest::Render { replace, jobs } => {
+                    render(open.as_ref(), replace, &jobs);
+                    Ok(())
                 }
                 EditorRequest::SaveAs {
                     source,
                     destination,
                     page_index,
                     edits,
-                } => save(&source, &destination, page_index, edits, &updates).map(|session| {
-                    open = session.or(open.take());
-                }),
+                } => {
+                    token += 1;
+                    save(&source, &destination, page_index, token, edits, &updates).map(|session| {
+                        open = session.or(open.take());
+                    })
+                }
             };
             if let Err(error) = result {
                 let _ = updates.send_blocking(EditorUpdate::Failed(error));
@@ -35,49 +52,49 @@ pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
     });
 }
 
-/// Keeps the opened document alive so pages can be re-rendered at higher
-/// raster scales without reparsing the file on every zoom change.
+/// Keeps the render pool alive so pages can be rasterised at new scales
+/// without reparsing the file on every zoom or scroll.
 pub struct OpenDocumentSession {
-    worker: DocumentWorker,
+    pool: RenderPool,
     pages: Vec<PageMetadata>,
 }
 
-fn rerender(
-    session: Option<&OpenDocumentSession>,
-    page_index: usize,
-    scale: f32,
-    updates: &Sender<EditorUpdate>,
-) -> Result<(), String> {
+fn render(session: Option<&OpenDocumentSession>, replace: bool, jobs: &[PageRequest]) {
     let Some(session) = session else {
-        return Ok(());
+        return;
     };
-    if session.pages.get(page_index).is_none() {
-        return Ok(());
+    if replace {
+        session.pool.cancel_pending_renders();
     }
-    session
-        .worker
-        .send(DocumentCommand::Render {
-            request: RenderRequest { page_index, scale },
-            generation: session.worker.current_generation(),
+    let jobs: Vec<_> = jobs
+        .iter()
+        .filter(|job| job.page_index < session.pages.len())
+        .map(|job| RenderJob {
+            page_index: job.page_index,
+            scale: job.scale,
+            kind: match job.kind {
+                PageKind::Preview => JobKind::Preview,
+                PageKind::Sharp => JobKind::Sharp,
+                PageKind::Text => JobKind::Text,
+            },
+            priority: job.priority,
         })
-        .map_err(|error| error.to_string())?;
-    let rendered = expect_rendered(receive(&session.worker)?)?;
-    updates
-        .send_blocking(EditorUpdate::PageRerendered {
-            page_index,
-            scale,
-            rendered,
-        })
-        .map_err(|error| error.to_string())
+        .collect();
+    session.pool.submit(&jobs);
 }
 
+/// Opens the document and reports its structure immediately. Page rasters and
+/// text arrive later, driven by what the reader is actually looking at.
 fn load(
     path: &Path,
     page_index: usize,
+    token: u64,
     updates: &Sender<EditorUpdate>,
 ) -> Result<OpenDocumentSession, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
-    let worker = DocumentWorker::spawn(Arc::new(ZpdfEngine), OpenRequest::new(bytes));
+    let bytes: Arc<[u8]> = Arc::from(bytes);
+    let engine: Arc<dyn PdfEngine> = Arc::new(ZpdfEngine);
+    let worker = DocumentWorker::spawn(Arc::clone(&engine), OpenRequest::new(Arc::clone(&bytes)));
     let document = expect_opened(receive(&worker)?)?;
     let page_count = document.page_count;
     if page_index >= page_count {
@@ -89,9 +106,13 @@ fn load(
         .send(DocumentCommand::FormFields)
         .map_err(|error| error.to_string())?;
     let forms = expect_forms(receive(&worker)?)?;
+    worker
+        .shutdown()
+        .map_err(|_| "document worker panicked during shutdown".to_owned())?;
 
     updates
         .send_blocking(EditorUpdate::Opened(Box::new(OpenedDocument {
+            token,
             path: path.to_path_buf(),
             document,
             pages: pages.clone(),
@@ -100,13 +121,54 @@ fn load(
         })))
         .map_err(|error| error.to_string())?;
 
-    for index in page_load_order(page_index, page_count) {
-        let page = load_page(&worker, pages[index])?;
-        updates
-            .send_blocking(EditorUpdate::PageLoaded(Box::new(page)))
-            .map_err(|error| error.to_string())?;
-    }
-    Ok(OpenDocumentSession { worker, pages })
+    let pool = spawn_pool(&engine, &bytes, page_count, token, updates.clone());
+    Ok(OpenDocumentSession { pool, pages })
+}
+
+fn spawn_pool(
+    engine: &Arc<dyn PdfEngine>,
+    bytes: &Arc<[u8]>,
+    page_count: usize,
+    token: u64,
+    updates: Sender<EditorUpdate>,
+) -> RenderPool {
+    let workers = std::thread::available_parallelism()
+        .map_or(2, std::num::NonZero::get)
+        .saturating_sub(1)
+        .clamp(1, MAX_RENDER_WORKERS)
+        .min(page_count.max(1));
+    RenderPool::spawn(engine, bytes, None, workers, move |event| {
+        let update = match event {
+            PoolEvent::Rendered {
+                page_index,
+                scale,
+                kind,
+                page,
+            } => EditorUpdate::PageRendered {
+                token,
+                page_index,
+                scale,
+                kind: match kind {
+                    JobKind::Sharp => PageKind::Sharp,
+                    JobKind::Preview | JobKind::Text => PageKind::Preview,
+                },
+                rendered: page,
+            },
+            PoolEvent::Text {
+                page_index,
+                text,
+                fragments,
+            } => EditorUpdate::PageText {
+                token,
+                page_index,
+                text,
+                fragments,
+            },
+            PoolEvent::Idle => EditorUpdate::Idle { token },
+            PoolEvent::Failed { error, .. } => EditorUpdate::Failed(error.to_string()),
+        };
+        let _ = updates.send_blocking(update);
+    })
 }
 
 fn load_page_metadata(
@@ -123,42 +185,11 @@ fn load_page_metadata(
         .collect()
 }
 
-fn load_page(worker: &DocumentWorker, page: PageMetadata) -> Result<LoadedPage, String> {
-    let page_index = page.index;
-    worker
-        .send(DocumentCommand::Render {
-            request: RenderRequest {
-                page_index,
-                scale: 1.5,
-            },
-            generation: worker.current_generation(),
-        })
-        .map_err(|error| error.to_string())?;
-    let rendered = expect_rendered(receive(worker)?)?;
-    worker
-        .send(DocumentCommand::ExtractText { page_index })
-        .map_err(|error| error.to_string())?;
-    let text = expect_text(receive(worker)?)?;
-    worker
-        .send(DocumentCommand::TextFragments { page_index })
-        .map_err(|error| error.to_string())?;
-    let fragments = expect_fragments(receive(worker)?)?;
-    Ok(LoadedPage {
-        page,
-        rendered,
-        text,
-        fragments,
-    })
-}
-
-fn page_load_order(initial_page: usize, page_count: usize) -> impl Iterator<Item = usize> {
-    (initial_page..page_count).chain(0..initial_page)
-}
-
 fn save(
     source: &Path,
     destination: &Path,
     page_index: usize,
+    token: u64,
     edits: Vec<pdf_engine::EditCommand>,
     updates: &Sender<EditorUpdate>,
 ) -> Result<Option<OpenDocumentSession>, String> {
@@ -177,7 +208,7 @@ fn save(
     updates
         .send_blocking(EditorUpdate::Saved(destination.to_path_buf()))
         .map_err(|error| error.to_string())?;
-    load(destination, page_index, updates).map(Some)
+    load(destination, page_index, token, updates).map(Some)
 }
 
 fn receive(worker: &DocumentWorker) -> Result<DocumentEvent, String> {
@@ -203,35 +234,11 @@ fn expect_page_metadata(event: DocumentEvent) -> Result<PageMetadata, String> {
     }
 }
 
-fn expect_rendered(event: DocumentEvent) -> Result<RenderedPage, String> {
-    match event {
-        DocumentEvent::PageRendered { page, .. } => Ok(page),
-        DocumentEvent::Failed { error, .. } => Err(error.to_string()),
-        event => Err(format!("unexpected render event: {event:?}")),
-    }
-}
-
-fn expect_text(event: DocumentEvent) -> Result<String, String> {
-    match event {
-        DocumentEvent::TextReady { text, .. } => Ok(text),
-        DocumentEvent::Failed { error, .. } => Err(error.to_string()),
-        event => Err(format!("unexpected text event: {event:?}")),
-    }
-}
-
 fn expect_forms(event: DocumentEvent) -> Result<Vec<pdf_engine::FormField>, String> {
     match event {
         DocumentEvent::FormFields(forms) => Ok(forms),
         DocumentEvent::Failed { error, .. } => Err(error.to_string()),
         event => Err(format!("unexpected forms event: {event:?}")),
-    }
-}
-
-fn expect_fragments(event: DocumentEvent) -> Result<Vec<pdf_engine::TextFragment>, String> {
-    match event {
-        DocumentEvent::TextFragments { fragments, .. } => Ok(fragments),
-        DocumentEvent::Failed { error, .. } => Err(error.to_string()),
-        event => Err(format!("unexpected text fragments event: {event:?}")),
     }
 }
 
@@ -246,25 +253,90 @@ fn expect_exported(event: DocumentEvent) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pdf_engine::PdfEngine;
+    use pdf_engine::RenderRequest;
+    use std::time::Instant;
+    use ui::PageRequest;
+
+    fn preview(page_index: usize) -> PageRequest {
+        PageRequest {
+            page_index,
+            scale: 0.35,
+            kind: PageKind::Preview,
+            priority: 0,
+        }
+    }
 
     #[test]
-    fn opens_fixture_and_sends_loaded_update() {
+    fn opening_reports_structure_before_any_page_is_rendered() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("sample.pdf");
         std::fs::write(&path, test_support::form_pdf()).unwrap();
         let (sender, receiver) = async_channel::unbounded();
 
-        load(&path, 0, &sender).unwrap();
+        let session = load(&path, 0, 1, &sender).unwrap();
 
         assert!(matches!(
             receiver.recv_blocking().unwrap(),
-            EditorUpdate::Opened(opened) if opened.forms.len() == 3 && opened.pages.len() == 1
+            EditorUpdate::Opened(opened)
+                if opened.forms.len() == 3 && opened.pages.len() == 1 && opened.token == 1
         ));
-        assert!(matches!(
-            receiver.recv_blocking().unwrap(),
-            EditorUpdate::PageLoaded(page) if page.page.index == 0
-        ));
+        assert!(receiver.is_empty());
+        drop(session);
+    }
+
+    #[test]
+    fn requested_pages_are_rendered_and_text_extracted() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("multi-page.pdf");
+        std::fs::write(&path, test_support::multi_page_pdf()).unwrap();
+        let (sender, receiver) = async_channel::unbounded();
+        let session = load(&path, 0, 7, &sender).unwrap();
+        let _ = receiver.recv_blocking().unwrap();
+
+        let jobs: Vec<_> = (0..test_support::MULTI_PAGE_COUNT).map(preview).collect();
+        render(Some(&session), true, &jobs);
+        render(
+            Some(&session),
+            false,
+            &[PageRequest {
+                page_index: 0,
+                scale: 1.0,
+                kind: PageKind::Text,
+                priority: 5,
+            }],
+        );
+
+        let mut rendered = 0;
+        let mut text = None;
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while (rendered < test_support::MULTI_PAGE_COUNT || text.is_none())
+            && Instant::now() < deadline
+        {
+            match receiver.recv_blocking().unwrap() {
+                EditorUpdate::PageRendered {
+                    token,
+                    rendered: page,
+                    ..
+                } => {
+                    assert_eq!(token, 7);
+                    assert!(page.is_valid());
+                    rendered += 1;
+                }
+                EditorUpdate::PageText {
+                    page_index,
+                    text: page_text,
+                    ..
+                } => {
+                    assert_eq!(page_index, 0);
+                    text = Some(page_text);
+                }
+                EditorUpdate::Failed(error) => panic!("{error}"),
+                _ => {}
+            }
+        }
+
+        assert_eq!(rendered, test_support::MULTI_PAGE_COUNT);
+        assert!(text.unwrap().contains("Fixture page 1"));
     }
 
     #[test]
@@ -278,7 +350,7 @@ mod tests {
             name: "customer.name".to_owned(),
             value: "Ada".to_owned(),
         }];
-        save(&path, &path, 0, edits, &sender).unwrap();
+        save(&path, &path, 0, 2, edits, &sender).unwrap();
 
         assert!(
             receiver
@@ -315,39 +387,5 @@ mod tests {
                     .is_valid()
             );
         }
-    }
-
-    #[test]
-    fn session_loads_every_fixture_page() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("multi-page.pdf");
-        std::fs::write(&path, test_support::multi_page_pdf()).unwrap();
-
-        let (sender, receiver) = async_channel::unbounded();
-        load(&path, 1, &sender).unwrap();
-
-        assert!(matches!(
-            receiver.recv_blocking().unwrap(),
-            EditorUpdate::Opened(opened)
-                if opened.pages.len() == test_support::MULTI_PAGE_COUNT
-                    && opened.initial_page == 1
-        ));
-        let pages: Vec<_> = (0..test_support::MULTI_PAGE_COUNT)
-            .map(|_| receiver.recv_blocking().unwrap())
-            .collect();
-        assert_eq!(
-            pages
-                .iter()
-                .filter(|update| matches!(update, EditorUpdate::PageLoaded(_)))
-                .count(),
-            test_support::MULTI_PAGE_COUNT
-        );
-        assert!(matches!(
-            &pages[0],
-            EditorUpdate::PageLoaded(page)
-                if page.page.index == 1
-                    && page.rendered.is_valid()
-                    && page.text.contains("Fixture page 2")
-        ));
     }
 }

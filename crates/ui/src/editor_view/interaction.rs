@@ -16,6 +16,7 @@ use super::Severity;
 use super::geometry::page_point;
 use super::gestures::{AnchorContext, DocumentMetrics, anchored_document_offset, pinch_zoom};
 use super::model::{DragState, InlineNote, InlineText, Tool};
+use super::schedule::{self, PageState, Viewport};
 
 pub(super) const MIN_ZOOM: f32 = 0.25;
 pub(super) const MAX_ZOOM: f32 = 8.0;
@@ -27,8 +28,10 @@ const ZOOM_STOPS: [f32; 12] = [
 const MIN_REGION: f64 = 4.0;
 /// How far (PDF points) a pointer may sit from a text run and still select it.
 const SELECTION_TOLERANCE: f64 = 24.0;
-/// Upper bound on raster scale, to keep memory and render time sane.
-const MAX_RENDER_SCALE: f32 = 4.0;
+/// Soft budget for decoded page rasters held in memory (about 512 MiB).
+const MAX_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
+/// Pages within this distance of the viewport are never evicted.
+const KEEP_RESIDENT_MARGIN: u32 = 8;
 
 /// Steps to the next preset zoom stop so repeated presses feel predictable
 /// instead of drifting off the presets after a fit or pinch.
@@ -320,7 +323,7 @@ impl EditorView {
             return;
         }
         self.zoom = clamped;
-        self.request_sharp_pages();
+        self.request_visible_pages();
         self.flash(
             format!("Zoom {}%", (self.zoom * 100.0).round()),
             Severity::Info,
@@ -328,26 +331,113 @@ impl EditorView {
         );
     }
 
-    /// Asks the engine for a crisper raster of the visible pages once the
-    /// on-screen size outgrows the cached image, so zooming stays sharp.
-    pub(super) fn request_sharp_pages(&mut self) {
-        let base = super::geometry::ui_f32(super::geometry::RENDER_SCALE);
-        let target = (base * self.zoom).clamp(base, MAX_RENDER_SCALE);
-        let first = self.page_index.saturating_sub(1);
-        let last = (self.page_index + 1).min(self.pages.len().saturating_sub(1));
-        for page_index in first..=last {
-            let Some(page) = self.pages.get_mut(page_index) else {
+    /// Queues the work the current viewport needs: full-quality rasters for
+    /// what is on screen, cheap previews just outside it, and page text for
+    /// search and selection.
+    pub(super) fn request_visible_pages(&mut self) {
+        let viewport = self.viewport();
+        let states = self.page_states();
+        let jobs = schedule::plan(viewport, &states);
+        self.background_requested = false;
+        self.dispatch(jobs, true);
+    }
+
+    /// Fills in pages outside the viewport once the visible ones are done.
+    pub(super) fn request_remaining_pages(&mut self) {
+        if self.background_requested {
+            return;
+        }
+        let viewport = self.viewport();
+        let states = self.page_states();
+        let jobs = schedule::plan_background(viewport, &states);
+        if jobs.is_empty() {
+            return;
+        }
+        self.background_requested = true;
+        self.dispatch(jobs, false);
+    }
+
+    /// Frees rasters far from the viewport so a long document does not grow
+    /// without bound while the background pass fills it in.
+    pub(super) fn evict_distant_pages(&mut self) {
+        let total: u64 = self.pages.iter().map(|page| page.image_bytes).sum();
+        if total <= MAX_IMAGE_BYTES {
+            return;
+        }
+        let viewport = self.viewport();
+        let mut candidates: Vec<_> = self
+            .pages
+            .iter()
+            .enumerate()
+            .filter(|(index, page)| {
+                page.image.is_some() && distance(viewport, *index) > KEEP_RESIDENT_MARGIN
+            })
+            .map(|(index, page)| (distance(viewport, index), index, page.image_bytes))
+            .collect();
+        candidates.sort_unstable_by_key(|(distance, _, _)| std::cmp::Reverse(*distance));
+
+        let mut freed = 0_u64;
+        for (_, index, bytes) in candidates {
+            if total.saturating_sub(freed) <= MAX_IMAGE_BYTES {
+                break;
+            }
+            if let Some(page) = self.pages.get_mut(index) {
+                page.release_image();
+                self.loaded_pages = self.loaded_pages.saturating_sub(1);
+                freed += bytes;
+            }
+        }
+        // Evicted pages may need to come back, so allow another background pass.
+        self.background_requested = false;
+    }
+
+    fn dispatch(&mut self, jobs: Vec<crate::PageRequest>, replace: bool) {
+        if jobs.is_empty() {
+            return;
+        }
+        for job in &jobs {
+            let Some(page) = self.pages.get_mut(job.page_index) else {
                 continue;
             };
-            if page.image.is_none() || target <= page.requested_scale + 0.01 {
-                continue;
+            match job.kind {
+                crate::PageKind::Text => page.text_requested = true,
+                crate::PageKind::Preview | crate::PageKind::Sharp => {
+                    page.requested_scale = page.requested_scale.max(job.scale);
+                }
             }
-            page.requested_scale = target;
-            let _ = self.requests.try_send(crate::EditorRequest::RenderPage {
-                page_index,
-                scale: target,
-            });
         }
+        let _ = self
+            .requests
+            .try_send(crate::EditorRequest::Render { replace, jobs });
+    }
+
+    fn viewport(&self) -> Viewport {
+        let last = self.pages.len().saturating_sub(1);
+        let (first_visible, last_visible) = if self.scroll.children_count() == 0 {
+            (self.page_index, self.page_index)
+        } else {
+            (
+                self.scroll.top_item().min(last),
+                self.scroll.bottom_item().min(last),
+            )
+        };
+        Viewport {
+            first_visible: first_visible.min(self.page_index),
+            last_visible: last_visible.max(self.page_index).min(last),
+            target_scale: super::geometry::ui_f32(super::geometry::RENDER_SCALE) * self.zoom,
+        }
+    }
+
+    fn page_states(&self) -> Vec<PageState> {
+        self.pages
+            .iter()
+            .map(|page| PageState {
+                render_scale: page.render_scale,
+                requested_scale: page.requested_scale,
+                text_loaded: page.text_loaded,
+                text_requested: page.text_requested,
+            })
+            .collect()
     }
 
     pub(super) fn document_scroll_wheel(
@@ -366,6 +456,7 @@ impl EditorView {
         self.sync_current_page_from_scroll();
         self.refresh_active_page();
         self.sync_page_input(window, cx);
+        self.request_visible_pages();
         cx.notify();
     }
 
@@ -1077,6 +1168,13 @@ fn point_distance(rect: document_core::PdfRect, point: document_core::PdfPoint) 
     let x = point.x.clamp(rect.x_min, rect.x_max);
     let y = point.y.clamp(rect.y_min, rect.y_max);
     (point.x - x).powi(2) + (point.y - y).powi(2)
+}
+
+/// Pages away from the visible range, used for eviction order.
+fn distance(viewport: Viewport, page_index: usize) -> u32 {
+    let before = viewport.first_visible.saturating_sub(page_index);
+    let after = page_index.saturating_sub(viewport.last_visible);
+    u32::try_from(before.max(after)).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]

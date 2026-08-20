@@ -4,13 +4,34 @@ use pdf_engine::{
     DocumentMetadata, EditCommand, FormField, PageMetadata, RenderedPage, TextFragment,
 };
 
+/// What a queued page job should produce.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PageKind {
+    /// A cheap low-resolution raster, shown until the sharp one arrives.
+    Preview,
+    /// A raster matching the on-screen size.
+    Sharp,
+    /// Page text and its geometry, used by search and selection.
+    Text,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PageRequest {
+    pub page_index: usize,
+    pub scale: f32,
+    pub kind: PageKind,
+    /// Lower runs first.
+    pub priority: u32,
+}
+
 #[derive(Debug)]
 pub enum EditorRequest {
     Open(PathBuf),
-    /// Re-render a single page at a higher raster scale for crisp zooming.
-    RenderPage {
-        page_index: usize,
-        scale: f32,
+    /// The pages worth working on right now, ordered by priority. When
+    /// `replace` is set, queued rasterisation for other pages is dropped.
+    Render {
+        replace: bool,
+        jobs: Vec<PageRequest>,
     },
     SaveAs {
         source: PathBuf,
@@ -23,11 +44,22 @@ pub enum EditorRequest {
 #[derive(Debug)]
 pub enum EditorUpdate {
     Opened(Box<OpenedDocument>),
-    PageLoaded(Box<LoadedPage>),
-    PageRerendered {
+    PageRendered {
+        token: u64,
         page_index: usize,
         scale: f32,
+        kind: PageKind,
         rendered: RenderedPage,
+    },
+    PageText {
+        token: u64,
+        page_index: usize,
+        text: String,
+        fragments: Vec<TextFragment>,
+    },
+    /// Every queued job for this document finished.
+    Idle {
+        token: u64,
     },
     Saved(PathBuf),
     Failed(String),
@@ -35,17 +67,12 @@ pub enum EditorUpdate {
 
 #[derive(Debug)]
 pub struct OpenedDocument {
+    /// Identifies the document instance, so results from a previously open
+    /// file are ignored instead of painted over the new one.
+    pub token: u64,
     pub path: PathBuf,
     pub document: DocumentMetadata,
     pub pages: Vec<PageMetadata>,
     pub forms: Vec<FormField>,
     pub initial_page: usize,
-}
-
-#[derive(Debug)]
-pub struct LoadedPage {
-    pub page: PageMetadata,
-    pub rendered: RenderedPage,
-    pub text: String,
-    pub fragments: Vec<TextFragment>,
 }

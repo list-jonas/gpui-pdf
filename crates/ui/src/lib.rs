@@ -14,4 +14,4 @@ pub use actions::{
 };
 pub use editor_view::EditorView;
 pub use icons::Assets;
-pub use protocol::{EditorRequest, EditorUpdate, LoadedPage, OpenedDocument};
+pub use protocol::{EditorRequest, EditorUpdate, OpenedDocument, PageKind, PageRequest};

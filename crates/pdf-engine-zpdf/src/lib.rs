@@ -1,4 +1,5 @@
 mod adapter;
+mod cache;
 mod convert;
 mod document;
 

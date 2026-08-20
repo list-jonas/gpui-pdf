@@ -180,7 +180,7 @@ impl EditorView {
         self.set_current_page(page_index);
         self.scroll.scroll_to_top_of_item(page_index);
         self.thumbnail_scroll.scroll_to_item(page_index);
-        self.request_sharp_pages();
+        self.request_visible_pages();
         cx.notify();
     }
 
