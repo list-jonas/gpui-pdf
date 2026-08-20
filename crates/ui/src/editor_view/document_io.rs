@@ -3,13 +3,17 @@ use std::path::{Path, PathBuf};
 use gpui::{App, Context, PathPromptOptions, Window};
 use pdf_engine::{EditCommand, FormFieldKind};
 
-use crate::actions::{NextPage, OpenDocument, PreviousPage, SaveDocument};
+use crate::actions::{
+    FirstPage, GoToPage, LastPage, NextPage, OpenDocument, PreviousPage, SaveDocument,
+    SaveDocumentAs,
+};
 use crate::{EditorRequest, EditorView};
+
+use super::Severity;
 
 impl EditorView {
     pub(super) fn open_picker(&mut self, _: &OpenDocument, _: &mut Window, cx: &mut Context<Self>) {
-        self.status = "Choose a PDF…".into();
-        cx.notify();
+        self.busy = false;
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -31,25 +35,61 @@ impl EditorView {
 
     fn open_path(&mut self, path: PathBuf) {
         self.status = "Loading PDF…".into();
+        self.busy = true;
         self.detail = Some(path.display().to_string().into());
-        self.edits.clear();
+        self.history.clear();
         let _ = self.requests.try_send(EditorRequest::Open(path));
     }
 
-    pub(super) fn save_picker(&mut self, _: &SaveDocument, _: &mut Window, cx: &mut Context<Self>) {
+    /// Save writes back to the open file; Save As always prompts.
+    pub(super) fn save_document(
+        &mut self,
+        _: &SaveDocument,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(source) = self.path.clone() else {
-            self.status = "Open a PDF before saving".into();
-            cx.notify();
+            self.flash("Open a PDF before saving", Severity::Error, cx);
             return;
         };
         self.capture_form_edits(cx);
-        let edits = self.edits.clone();
+        self.materialize_inline_edits(cx);
+        if self.history.is_empty() {
+            self.flash("No changes to save", Severity::Info, cx);
+            return;
+        }
+        let edits = self.history.to_vec();
+        self.busy = true;
+        self.flash("Saving…", Severity::Info, cx);
+        let _ = self.requests.try_send(EditorRequest::SaveAs {
+            source: source.clone(),
+            destination: source,
+            page_index: self.page_index,
+            edits,
+        });
+        let _ = window;
+    }
+
+    pub(super) fn save_picker(
+        &mut self,
+        _: &SaveDocumentAs,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(source) = self.path.clone() else {
+            self.flash("Open a PDF before saving", Severity::Error, cx);
+            return;
+        };
+        self.capture_form_edits(cx);
+        self.materialize_inline_edits(cx);
+        let edits = self.history.to_vec();
         let directory = source.parent().unwrap_or_else(|| Path::new("/"));
         let suggestion = format!("{}-edited.pdf", file_stem(&source));
         let receiver = cx.prompt_for_new_path(directory, Some(&suggestion));
         cx.spawn(async move |view, cx| {
             if let Ok(Ok(Some(destination))) = receiver.await {
                 let _ = view.update(cx, |view, cx| {
+                    view.busy = true;
                     view.status = "Saving edited PDF…".into();
                     let _ = view.requests.try_send(EditorRequest::SaveAs {
                         source,
@@ -78,11 +118,11 @@ impl EditorView {
             })
             .collect();
         for (name, original, value) in values {
-            self.edits.retain(|edit| {
+            self.history.retain(|edit| {
                 !matches!(edit, EditCommand::FillForm { name: existing, .. } if existing == &name)
             });
             if value != original {
-                self.edits.push(EditCommand::FillForm { name, value });
+                self.history.push(EditCommand::FillForm { name, value });
             }
         }
     }
@@ -90,18 +130,46 @@ impl EditorView {
     pub(super) fn previous_page(
         &mut self,
         _: &PreviousPage,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.page_index > 0 {
+        if !self.input_has_focus(window, cx) && self.page_index > 0 {
             self.jump_to_page(self.page_index - 1, cx);
+            self.sync_page_input(window, cx);
         }
     }
 
-    pub(super) fn next_page(&mut self, _: &NextPage, _: &mut Window, cx: &mut Context<Self>) {
-        if self.page_index + 1 < self.page_count {
+    pub(super) fn next_page(&mut self, _: &NextPage, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.input_has_focus(window, cx) && self.page_index + 1 < self.page_count {
             self.jump_to_page(self.page_index + 1, cx);
+            self.sync_page_input(window, cx);
         }
+    }
+
+    pub(super) fn first_page(
+        &mut self,
+        _: &FirstPage,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.input_has_focus(window, cx) {
+            self.jump_to_page(0, cx);
+            self.sync_page_input(window, cx);
+        }
+    }
+
+    pub(super) fn last_page(&mut self, _: &LastPage, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.input_has_focus(window, cx) && self.page_count > 0 {
+            self.jump_to_page(self.page_count - 1, cx);
+            self.sync_page_input(window, cx);
+        }
+    }
+
+    pub(super) fn go_to_page(&mut self, _: &GoToPage, window: &mut Window, cx: &mut Context<Self>) {
+        let page_input = self.page_input.clone();
+        window.defer(cx, move |window, cx| {
+            page_input.update(cx, |input, cx| input.focus(window, cx));
+        });
     }
 
     pub(super) fn jump_to_page(&mut self, page_index: usize, cx: &mut Context<Self>) {
@@ -111,6 +179,8 @@ impl EditorView {
         self.capture_form_edits(cx);
         self.set_current_page(page_index);
         self.scroll.scroll_to_top_of_item(page_index);
+        self.thumbnail_scroll.scroll_to_item(page_index);
+        self.request_sharp_pages();
         cx.notify();
     }
 

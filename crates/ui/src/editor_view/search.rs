@@ -1,35 +1,55 @@
 use document_core::PdfRect;
-use gpui::{Context, Window};
+use gpui::{Context, Focusable, Window};
 
 use crate::actions::{NextSearchResult, PreviousSearchResult, Search};
 
 use super::EditorView;
+use super::Severity;
 use super::model::SearchMatch;
 
 impl EditorView {
     pub(super) fn open_search(&mut self, _: &Search, window: &mut Window, cx: &mut Context<Self>) {
+        self.panels.search = true;
         self.refresh_search(cx, false);
-        self.search_input
-            .update(cx, |input, cx| input.focus(window, cx));
+        let search_input = self.search_input.clone();
+        window.defer(cx, move |window, cx| {
+            search_input.update(cx, |input, cx| input.focus(window, cx));
+        });
         cx.notify();
+    }
+
+    /// Closes the search bar, clears highlights and returns focus to the page.
+    pub(super) fn close_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.panels.search = false;
+        self.search_matches.clear();
+        self.search_index = 0;
+        self.search_query.clear();
+        self.search_input
+            .update(cx, |input, cx| input.set_value("", window, cx));
+        self.focus_handle.focus(window);
+        cx.notify();
+    }
+
+    pub(super) fn search_has_focus(&self, window: &Window, cx: &gpui::App) -> bool {
+        self.search_input.focus_handle(cx).is_focused(window)
     }
 
     pub(super) fn next_search_result(
         &mut self,
         _: &NextSearchResult,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_search_result(1, cx);
+        self.move_search_result(1, window, cx);
     }
 
     pub(super) fn previous_search_result(
         &mut self,
         _: &PreviousSearchResult,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.move_search_result(-1, cx);
+        self.move_search_result(-1, window, cx);
     }
 
     pub(super) fn refresh_search(&mut self, cx: &mut Context<Self>, force: bool) {
@@ -37,96 +57,176 @@ impl EditorView {
         if !force && query == self.search_query {
             return;
         }
-        self.search_query = query.clone();
+        let query_changed = query != self.search_query;
+        self.search_query.clone_from(&query);
         self.search_matches.clear();
-        self.search_index = 0;
+        if query_changed {
+            self.search_index = 0;
+        }
         if query.is_empty() {
             cx.notify();
             return;
         }
 
         for (page_index, page) in self.pages.iter().enumerate() {
-            for fragment in &page.fragments {
-                self.search_matches.extend(fragment_matches(
-                    page_index,
-                    fragment.rect,
-                    &fragment.text,
-                    &query,
-                ));
-            }
+            self.search_matches
+                .extend(page_matches(page_index, &page.fragments, &query));
         }
-        if let Some(result) = self.search_matches.first().copied() {
+        if self.search_index >= self.search_matches.len() {
+            self.search_index = 0;
+        }
+        if query_changed && let Some(result) = self.search_matches.first().copied() {
             self.jump_to_page(result.page_index, cx);
         }
-        self.status = if self.search_matches.is_empty() {
-            format!("No results for \"{query}\"").into()
-        } else {
-            format!("{} results for \"{query}\"", self.search_matches.len()).into()
-        };
         cx.notify();
     }
 
-    fn move_search_result(&mut self, direction: isize, cx: &mut Context<Self>) {
+    fn move_search_result(
+        &mut self,
+        direction: isize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.refresh_search(cx, false);
         if self.search_matches.is_empty() {
-            self.status = "No search results".into();
-            cx.notify();
+            let message = if self.search_query.is_empty() {
+                "Type something to search".to_owned()
+            } else {
+                format!("No results for \"{}\"", self.search_query)
+            };
+            self.flash(message, Severity::Info, cx);
             return;
         }
-        let count = self.search_matches.len() as isize;
-        self.search_index = (self.search_index as isize + direction).rem_euclid(count) as usize;
+        self.search_index = if direction.is_negative() {
+            self.search_index
+                .checked_sub(1)
+                .unwrap_or(self.search_matches.len() - 1)
+        } else {
+            (self.search_index + 1) % self.search_matches.len()
+        };
         let result = self.search_matches[self.search_index];
         self.jump_to_page(result.page_index, cx);
-        self.status = format!(
-            "Result {} of {}",
-            self.search_index + 1,
-            self.search_matches.len()
-        )
-        .into();
+        self.sync_page_input(window, cx);
+        self.flash(
+            format!(
+                "Result {} of {}",
+                self.search_index + 1,
+                self.search_matches.len()
+            ),
+            Severity::Info,
+            cx,
+        );
     }
 }
 
-fn fragment_matches(page_index: usize, rect: PdfRect, text: &str, query: &str) -> Vec<SearchMatch> {
+fn page_matches(
+    page_index: usize,
+    fragments: &[pdf_engine::TextFragment],
+    query: &str,
+) -> Vec<SearchMatch> {
+    let text: String = fragments
+        .iter()
+        .map(|fragment| fragment.text.as_str())
+        .collect();
     let (haystack, needle) = if query.is_ascii() {
         (text.to_ascii_lowercase(), query.to_ascii_lowercase())
     } else {
-        (text.to_owned(), query.to_owned())
+        (text.clone(), query.to_owned())
     };
-    let char_count = text.chars().count();
-    if char_count == 0 || needle.is_empty() {
+    if text.is_empty() || needle.is_empty() {
         return Vec::new();
     }
     haystack
         .match_indices(&needle)
         .filter_map(|(byte_start, _)| {
-            let start = haystack[..byte_start].chars().count();
-            let end = start + needle.chars().count();
-            let width = rect.width() / char_count as f64;
-            PdfRect::new(
-                rect.x_min + width * start as f64,
-                rect.y_min,
-                rect.x_min + width * end as f64,
-                rect.y_max,
-            )
-            .ok()
-            .map(|rect| SearchMatch { page_index, rect })
+            let start = u32::try_from(haystack[..byte_start].chars().count()).unwrap_or(u32::MAX);
+            let end =
+                start.saturating_add(u32::try_from(needle.chars().count()).unwrap_or(u32::MAX));
+            matching_rect(fragments, start, end).map(|rect| SearchMatch { page_index, rect })
         })
         .collect()
+}
+
+fn matching_rect(fragments: &[pdf_engine::TextFragment], start: u32, end: u32) -> Option<PdfRect> {
+    let mut offset = 0_u32;
+    let mut matched: Option<PdfRect> = None;
+    for fragment in fragments {
+        let count = u32::try_from(fragment.text.chars().count()).unwrap_or(u32::MAX);
+        let fragment_end = offset.saturating_add(count);
+        if start < fragment_end && end > offset {
+            let left = start.saturating_sub(offset).min(count);
+            let right = end.saturating_sub(offset).min(count);
+            if left < right {
+                let width = fragment.rect.width() / f64::from(count);
+                let rect = PdfRect::new(
+                    fragment.rect.x_min + width * f64::from(left),
+                    fragment.rect.y_min,
+                    fragment.rect.x_min + width * f64::from(right),
+                    fragment.rect.y_max,
+                )
+                .ok()?;
+                matched = Some(match matched {
+                    Some(existing) => PdfRect::new(
+                        existing.x_min.min(rect.x_min),
+                        existing.y_min.min(rect.y_min),
+                        existing.x_max.max(rect.x_max),
+                        existing.y_max.max(rect.y_max),
+                    )
+                    .ok()?,
+                    None => rect,
+                });
+            }
+        }
+        offset = fragment_end;
+        if offset >= end {
+            break;
+        }
+    }
+    matched
 }
 
 #[cfg(test)]
 mod tests {
     use document_core::PdfRect;
 
-    use super::fragment_matches;
+    use pdf_engine::TextFragment;
+
+    use super::page_matches;
 
     #[test]
     fn finds_each_case_insensitive_match_with_its_own_rect() {
-        let rect = PdfRect::new(0.0, 0.0, 110.0, 10.0).unwrap();
-        let matches = fragment_matches(2, rect, "Find find!", "find");
+        let matches = page_matches(
+            2,
+            &[TextFragment {
+                text: "Find find!".into(),
+                rect: PdfRect::new(0.0, 0.0, 110.0, 10.0).unwrap(),
+            }],
+            "find",
+        );
 
         assert_eq!(matches.len(), 2);
         assert_eq!(matches[0].page_index, 2);
         assert!(matches[0].rect.x_max < matches[1].rect.x_min);
+    }
+
+    #[test]
+    fn finds_text_split_across_pdf_fragments() {
+        let matches = page_matches(
+            0,
+            &[
+                TextFragment {
+                    text: "Sea".into(),
+                    rect: PdfRect::new(0.0, 0.0, 30.0, 10.0).unwrap(),
+                },
+                TextFragment {
+                    text: "rch".into(),
+                    rect: PdfRect::new(30.0, 0.0, 60.0, 10.0).unwrap(),
+                },
+            ],
+            "search",
+        );
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].rect, PdfRect::new(0.0, 0.0, 60.0, 10.0).unwrap());
     }
 }

@@ -99,7 +99,7 @@ impl EditorView {
                 .on_mouse_up(MouseButton::Left, cx.listener(Self::page_mouse_up)),
         );
         element = self.add_search_overlays(element, page_index);
-        element = self.add_edit_overlays(element, page_index);
+        element = self.add_edit_overlays(element, page_index, cx);
         element = self.add_selection_overlays(element, page_index);
         element = self.add_form_overlays(element, page_index, cx);
         element = self.add_inline_text(element, page_index, cx);
@@ -134,8 +134,8 @@ impl EditorView {
                             ))
                             .label(if checked { "✓" } else { "" })
                             .disabled(item.field.read_only)
-                            .when(item.field.read_only, |button| button.cursor_not_allowed())
-                            .when(!item.field.read_only, |button| button.cursor_pointer())
+                            .when(item.field.read_only, gpui::Styled::cursor_not_allowed)
+                            .when(!item.field.read_only, gpui::Styled::cursor_pointer)
                             .on_click(cx.listener(
                                 move |view, _, window, cx| {
                                     view.toggle_form_button(&name, window, cx);
@@ -202,9 +202,15 @@ impl EditorView {
         page
     }
 
-    fn add_edit_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
+    #[allow(clippy::too_many_lines)]
+    fn add_edit_overlays(
+        &self,
+        mut page: gpui::Div,
+        page_index: usize,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
         let geometry = self.pages[page_index].metadata.geometry;
-        for edit in &self.edits {
+        for (edit_index, edit) in self.history.iter().enumerate() {
             match edit {
                 EditCommand::Highlight {
                     page_index: target,
@@ -266,7 +272,7 @@ impl EditorView {
                     page_index: target,
                     x,
                     y,
-                    contents: _,
+                    contents,
                     color,
                 } if *target == page_index => {
                     let (left, top) =
@@ -275,16 +281,26 @@ impl EditorView {
                         div()
                             .absolute()
                             .left(px(left))
-                            .top(px(top - 18.0))
-                            .size_5()
-                            .rounded_full()
-                            .bg(rgb(color_to_u32(*color)))
-                            .text_xs()
-                            .text_color(rgb(0x00ff_ffff))
+                            .top(px(top - 72.0))
+                            .w(px(160.0))
+                            .h(px(72.0))
+                            .p_2()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(rgb(color_to_u32(*color)))
+                            .bg(rgb(0x00ff_f8dc))
+                            .text_sm()
+                            .text_color(rgb(0x001f_2937))
                             .flex()
-                            .items_center()
-                            .justify_center()
-                            .child("•"),
+                            .items_start()
+                            .cursor_pointer()
+                            .child(contents.clone())
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |view, _, window, cx| {
+                                    view.edit_note_overlay(edit_index, window, cx);
+                                }),
+                            ),
                     );
                 }
                 EditCommand::Shape {
@@ -315,7 +331,14 @@ impl EditorView {
                             .top(px(top - display_text_size(stamp.size, self.zoom)))
                             .text_size(px(display_text_size(stamp.size, self.zoom)))
                             .text_color(rgb(0x0000_0000))
-                            .child(stamp.text.clone()),
+                            .cursor_pointer()
+                            .child(stamp.text.clone())
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |view, _, window, cx| {
+                                    view.edit_text_overlay(edit_index, window, cx);
+                                }),
+                            ),
                     );
                 }
                 _ => {}
@@ -395,6 +418,7 @@ impl EditorView {
                                 .appearance(false)
                                 .bordered(false)
                                 .focus_bordered(false)
+                                .text_color(rgb(0x001f_2937))
                                 .text_size(px(font_size)),
                         ),
                 ),
@@ -405,7 +429,7 @@ impl EditorView {
         &self,
         page: gpui::Div,
         page_index: usize,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> gpui::Div {
         let Some(note) = self
             .inline_note
@@ -430,10 +454,38 @@ impl EditorView {
                 .border_color(rgb(0x00f5_b942))
                 .bg(rgb(0x00ff_f8dc))
                 .occlude()
+                .on_mouse_move(cx.listener(Self::inline_note_mouse_move))
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::inline_note_mouse_up))
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(0.0))
+                        .top(px(0.0))
+                        .w(px(12.0 * scale))
+                        .h_full()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .cursor(if matches!(self.drag, Some(DragState::InlineNote { .. })) {
+                            CursorStyle::ClosedHand
+                        } else {
+                            CursorStyle::OpenHand
+                        })
+                        .text_size(px(10.0 * scale))
+                        .text_color(rgb(0x00b4_6d00))
+                        .child("⠿")
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |view, event, window, cx| {
+                                view.inline_note_mouse_down(page_index, event, window, cx);
+                            }),
+                        ),
+                )
                 .child(
                     Input::new(&note.input)
                         .with_size(Size::Size(px(12.0 * scale / 0.875)))
                         .size_full()
+                        .pl(px(14.0 * scale))
                         .appearance(false)
                         .bordered(false)
                         .focus_bordered(false)
@@ -468,11 +520,13 @@ fn cursor_for_tool(tool: Tool, panning: bool) -> CursorStyle {
 
     match tool {
         Tool::Select
+        | Tool::Edit
         | Tool::Highlight
         | Tool::Underline
         | Tool::Strikeout
         | Tool::AddText
-        | Tool::Note => CursorStyle::IBeam,
+        | Tool::Note
+        | Tool::Signature => CursorStyle::IBeam,
         Tool::Hand => CursorStyle::OpenHand,
         Tool::Shape | Tool::Redact => CursorStyle::Crosshair,
     }
@@ -480,6 +534,31 @@ fn cursor_for_tool(tool: Tool, panning: bool) -> CursorStyle {
 
 fn display_text_size(size: f64, zoom: f32) -> f32 {
     ui_f32(size) * ui_f32(RENDER_SCALE) * zoom
+}
+
+fn positioned(rect: OverlayRect) -> gpui::Div {
+    div()
+        .absolute()
+        .left(px(rect.left))
+        .top(px(rect.top))
+        .w(px(rect.width.max(1.0)))
+        .h(px(rect.height.max(1.0)))
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn highlight_preview(color: (f64, f64, f64)) -> gpui::Rgba {
+    gpui::Rgba {
+        r: color.0 as f32,
+        g: color.1 as f32,
+        b: color.2 as f32,
+        a: 0.35,
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn color_to_u32(color: (f64, f64, f64)) -> u32 {
+    let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
+    (channel(color.0) << 16) | (channel(color.1) << 8) | channel(color.2)
 }
 
 #[cfg(test)]
@@ -512,27 +591,4 @@ mod tests {
             assert_eq!(cursor_for_tool(tool, false), CursorStyle::Crosshair);
         }
     }
-}
-
-fn positioned(rect: OverlayRect) -> gpui::Div {
-    div()
-        .absolute()
-        .left(px(rect.left))
-        .top(px(rect.top))
-        .w(px(rect.width.max(1.0)))
-        .h(px(rect.height.max(1.0)))
-}
-
-fn highlight_preview(color: (f64, f64, f64)) -> gpui::Rgba {
-    gpui::Rgba {
-        r: color.0 as f32,
-        g: color.1 as f32,
-        b: color.2 as f32,
-        a: 0.35,
-    }
-}
-
-fn color_to_u32(color: (f64, f64, f64)) -> u32 {
-    let channel = |value: f64| (value.clamp(0.0, 1.0) * 255.0).round() as u32;
-    (channel(color.0) << 16) | (channel(color.1) << 8) | channel(color.2)
 }

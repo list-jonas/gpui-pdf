@@ -141,6 +141,7 @@ impl ZpdfDocument {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn apply_edit(writer: &mut IncrementalWriter, edit: &EditCommand) -> Result<(), EngineError> {
     match edit {
         EditCommand::FillForm { name, value } => {

@@ -7,6 +7,11 @@ use pdf_engine::{
 #[derive(Debug)]
 pub enum EditorRequest {
     Open(PathBuf),
+    /// Re-render a single page at a higher raster scale for crisp zooming.
+    RenderPage {
+        page_index: usize,
+        scale: f32,
+    },
     SaveAs {
         source: PathBuf,
         destination: PathBuf,
@@ -19,6 +24,11 @@ pub enum EditorRequest {
 pub enum EditorUpdate {
     Opened(Box<OpenedDocument>),
     PageLoaded(Box<LoadedPage>),
+    PageRerendered {
+        page_index: usize,
+        scale: f32,
+        rendered: RenderedPage,
+    },
     Saved(PathBuf),
     Failed(String),
 }

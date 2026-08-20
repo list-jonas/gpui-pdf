@@ -10,15 +10,23 @@ use ui::{EditorRequest, EditorUpdate, LoadedPage, OpenedDocument};
 
 pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
     std::thread::spawn(move || {
+        let mut open: Option<OpenDocumentSession> = None;
         while let Ok(request) = requests.recv_blocking() {
             let result = match request {
-                EditorRequest::Open(path) => load(&path, 0, &updates),
+                EditorRequest::Open(path) => load(&path, 0, &updates).map(|session| {
+                    open = Some(session);
+                }),
+                EditorRequest::RenderPage { page_index, scale } => {
+                    rerender(open.as_ref(), page_index, scale, &updates)
+                }
                 EditorRequest::SaveAs {
                     source,
                     destination,
                     page_index,
                     edits,
-                } => save(&source, &destination, page_index, edits, &updates),
+                } => save(&source, &destination, page_index, edits, &updates).map(|session| {
+                    open = session.or(open.take());
+                }),
             };
             if let Err(error) = result {
                 let _ = updates.send_blocking(EditorUpdate::Failed(error));
@@ -27,7 +35,47 @@ pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
     });
 }
 
-fn load(path: &Path, page_index: usize, updates: &Sender<EditorUpdate>) -> Result<(), String> {
+/// Keeps the opened document alive so pages can be re-rendered at higher
+/// raster scales without reparsing the file on every zoom change.
+pub struct OpenDocumentSession {
+    worker: DocumentWorker,
+    pages: Vec<PageMetadata>,
+}
+
+fn rerender(
+    session: Option<&OpenDocumentSession>,
+    page_index: usize,
+    scale: f32,
+    updates: &Sender<EditorUpdate>,
+) -> Result<(), String> {
+    let Some(session) = session else {
+        return Ok(());
+    };
+    if session.pages.get(page_index).is_none() {
+        return Ok(());
+    }
+    session
+        .worker
+        .send(DocumentCommand::Render {
+            request: RenderRequest { page_index, scale },
+            generation: session.worker.current_generation(),
+        })
+        .map_err(|error| error.to_string())?;
+    let rendered = expect_rendered(receive(&session.worker)?)?;
+    updates
+        .send_blocking(EditorUpdate::PageRerendered {
+            page_index,
+            scale,
+            rendered,
+        })
+        .map_err(|error| error.to_string())
+}
+
+fn load(
+    path: &Path,
+    page_index: usize,
+    updates: &Sender<EditorUpdate>,
+) -> Result<OpenDocumentSession, String> {
     let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let worker = DocumentWorker::spawn(Arc::new(ZpdfEngine), OpenRequest::new(bytes));
     let document = expect_opened(receive(&worker)?)?;
@@ -58,9 +106,7 @@ fn load(path: &Path, page_index: usize, updates: &Sender<EditorUpdate>) -> Resul
             .send_blocking(EditorUpdate::PageLoaded(Box::new(page)))
             .map_err(|error| error.to_string())?;
     }
-    worker
-        .shutdown()
-        .map_err(|_| "document worker panicked during shutdown".to_owned())
+    Ok(OpenDocumentSession { worker, pages })
 }
 
 fn load_page_metadata(
@@ -115,7 +161,7 @@ fn save(
     page_index: usize,
     edits: Vec<pdf_engine::EditCommand>,
     updates: &Sender<EditorUpdate>,
-) -> Result<(), String> {
+) -> Result<Option<OpenDocumentSession>, String> {
     let bytes = std::fs::read(source).map_err(|error| format!("{}: {error}", source.display()))?;
     let worker = DocumentWorker::spawn(Arc::new(ZpdfEngine), OpenRequest::new(bytes));
     expect_opened(receive(&worker)?)?;
@@ -131,7 +177,7 @@ fn save(
     updates
         .send_blocking(EditorUpdate::Saved(destination.to_path_buf()))
         .map_err(|error| error.to_string())?;
-    load(destination, page_index, updates)
+    load(destination, page_index, updates).map(Some)
 }
 
 fn receive(worker: &DocumentWorker) -> Result<DocumentEvent, String> {

@@ -2,14 +2,11 @@ use gpui::{
     Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, rgb,
 };
-use gpui_component::Disableable;
 use gpui_component::button::Button;
 use gpui_component::scroll::ScrollableElement;
 
-use crate::EditorView;
-use crate::actions::{CommitNote, CommitText};
-
 use super::model::{Tool, shape_label};
+use crate::EditorView;
 use pdf_engine::ShapeKind;
 
 impl EditorView {
@@ -53,6 +50,7 @@ impl EditorView {
             .overflow_y_scrollbar()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn add_tool_properties(&self, panel: gpui::Div, cx: &mut Context<Self>) -> gpui::Div {
         match self.tool {
             Tool::Select => panel.child(
@@ -73,6 +71,14 @@ impl EditorView {
                             .text_sm()
                             .child(self.selected_text.clone()),
                     ),
+            ),
+            Tool::Edit => panel.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child("Edit"))
+                    .child("Click text or comments you added to edit and move them. PDF form fields remain directly editable."),
             ),
             Tool::Hand => panel.child("Drag page to pan. Scroll and trackpad also work."),
             Tool::Highlight => panel
@@ -102,32 +108,16 @@ impl EditorView {
                 ),
             Tool::Underline | Tool::Strikeout => panel
                 .child("Drag across text. Markup follows extracted text runs.")
-                .child(self.annotation_color_buttons(cx)),
-            Tool::AddText => panel
-                .child("Click page, type directly over PDF, then commit.")
-                .child(
-                    Button::new("commit-text")
-                        .label("Commit text")
-                        .disabled(self.inline_text.is_none())
-                        .when(self.inline_text.is_some(), |button| button.cursor_pointer())
-                        .when(self.inline_text.is_none(), |button| {
-                            button.cursor_not_allowed()
-                        })
-                        .on_click(cx.listener(|view, _, window, cx| {
-                            view.commit_text(&CommitText, window, cx);
-                        })),
-                ),
+                .child(Self::annotation_color_buttons(cx)),
+            Tool::AddText => {
+                panel.child("Click page and type. Click a saved text overlay to edit it.")
+            }
             Tool::Note => panel
-                .child("Click page, write comment, then commit.")
-                .child(
-                    Button::new("commit-note")
-                        .label("Commit comment")
-                        .disabled(self.inline_note.is_none())
-                        .on_click(cx.listener(|view, _, window, cx| {
-                            view.commit_note(&CommitNote, window, cx);
-                        })),
-                )
-                .child(self.annotation_color_buttons(cx)),
+                .child("Click page and type. Click a saved comment to edit it.")
+                .child(Self::annotation_color_buttons(cx)),
+            Tool::Signature => panel.child(
+                "Click page and type a visual signature. This is not a certificate-backed digital signature.",
+            ),
             Tool::Shape => panel
                 .child(format!("Draw {} on page.", shape_label(self.shape_kind)))
                 .child(
@@ -147,7 +137,7 @@ impl EditorView {
                             cx,
                         )),
                 )
-                .child(self.annotation_color_buttons(cx)),
+                .child(Self::annotation_color_buttons(cx)),
             Tool::Redact => panel
                 .child("Drag a rectangle over content. Save As applies permanent redaction.")
                 .child(
@@ -178,7 +168,7 @@ impl EditorView {
             .on_click(cx.listener(move |view, _, _, cx| view.set_highlight_color(value, cx)))
     }
 
-    fn annotation_color_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn annotation_color_buttons(cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .gap_2()

@@ -9,12 +9,14 @@ use gpui::Entity;
 pub enum Tool {
     #[default]
     Select,
+    Edit,
     Hand,
     Highlight,
     Underline,
     Strikeout,
     AddText,
     Note,
+    Signature,
     Shape,
     Redact,
 }
@@ -23,12 +25,14 @@ impl Tool {
     pub const fn label(self) -> &'static str {
         match self {
             Self::Select => "Select",
+            Self::Edit => "Edit",
             Self::Hand => "Hand",
             Self::Highlight => "Highlight",
             Self::Underline => "Underline",
             Self::Strikeout => "Strike out",
             Self::AddText => "Add text",
             Self::Note => "Comment",
+            Self::Signature => "Sign",
             Self::Shape => "Shape",
             Self::Redact => "Redact",
         }
@@ -46,6 +50,11 @@ pub enum DragState {
         offset: Point<Pixels>,
     },
     InlineText {
+        page_index: usize,
+        start: PdfPoint,
+        point: PdfPoint,
+    },
+    InlineNote {
         page_index: usize,
         start: PdfPoint,
         point: PdfPoint,
@@ -98,4 +107,22 @@ pub struct OverlayRect {
     pub top: f32,
     pub width: f32,
     pub height: f32,
+}
+
+/// Which chrome panels are currently shown.
+#[derive(Clone, Copy)]
+pub struct PanelVisibility {
+    pub sidebar: bool,
+    pub properties: bool,
+    pub search: bool,
+}
+
+impl Default for PanelVisibility {
+    fn default() -> Self {
+        Self {
+            sidebar: true,
+            properties: true,
+            search: false,
+        }
+    }
 }

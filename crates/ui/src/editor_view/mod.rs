@@ -3,6 +3,7 @@ mod document_page;
 mod edits;
 mod geometry;
 mod gestures;
+mod history;
 mod interaction;
 mod layout;
 mod model;
@@ -11,11 +12,13 @@ mod properties;
 mod search;
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
 use document_core::PdfRect;
 use gpui::{
-    AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Window,
+    AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Task,
+    Window,
 };
 use gpui_component::input::InputState;
 use pdf_engine::{EditCommand, FormField, ShapeKind};
@@ -26,7 +29,15 @@ use crate::{EditorRequest, EditorUpdate};
 
 use self::document_io::file_name;
 use self::document_page::DocumentPage;
-use self::model::{DragState, InlineNote, InlineText, SearchMatch, Tool};
+use self::history::EditHistory;
+use self::model::{DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, Tool};
+
+/// How a transient message is presented in the status bar.
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum Severity {
+    Info,
+    Error,
+}
 
 pub struct EditorView {
     requests: Sender<EditorRequest>,
@@ -34,6 +45,8 @@ pub struct EditorView {
     page_index: usize,
     page_count: usize,
     status: SharedString,
+    severity: Severity,
+    busy: bool,
     detail: Option<SharedString>,
     extracted_text: Option<SharedString>,
     pdf_version: (u8, u8),
@@ -42,7 +55,7 @@ pub struct EditorView {
     focus_handle: FocusHandle,
     scroll: ScrollHandle,
     forms: Vec<FieldInput>,
-    edits: Vec<EditCommand>,
+    history: EditHistory,
     tool: Tool,
     zoom: f32,
     drag: Option<DragState>,
@@ -58,6 +71,11 @@ pub struct EditorView {
     search_query: String,
     search_matches: Vec<SearchMatch>,
     search_index: usize,
+    page_input: Entity<InputState>,
+    _page_subscription: Subscription,
+    thumbnail_scroll: ScrollHandle,
+    panels: PanelVisibility,
+    status_reset: Option<Task<()>>,
 }
 
 impl EditorView {
@@ -85,6 +103,16 @@ impl EditorView {
         let search_subscription = cx.observe(&search_input, |view, _, cx| {
             view.refresh_search(cx, false);
         });
+        let page_input = input("Page", "", window, cx);
+        let page_subscription = cx.subscribe_in(
+            &page_input,
+            window,
+            |view, _, event: &gpui_component::input::InputEvent, window, cx| {
+                if matches!(event, gpui_component::input::InputEvent::PressEnter { .. }) {
+                    view.commit_page_input(window, cx);
+                }
+            },
+        );
 
         Self {
             requests,
@@ -92,6 +120,8 @@ impl EditorView {
             page_index: 0,
             page_count: 0,
             status: "Open a PDF to begin".into(),
+            severity: Severity::Info,
+            busy: false,
             detail: None,
             extracted_text: None,
             pdf_version: (0, 0),
@@ -100,7 +130,7 @@ impl EditorView {
             focus_handle,
             scroll: ScrollHandle::new(),
             forms: Vec::new(),
-            edits: Vec::new(),
+            history: EditHistory::default(),
             tool: Tool::Select,
             zoom: 1.0,
             drag: None,
@@ -116,6 +146,11 @@ impl EditorView {
             search_query: String::new(),
             search_matches: Vec::new(),
             search_index: 0,
+            page_input,
+            _page_subscription: page_subscription,
+            thumbnail_scroll: ScrollHandle::new(),
+            panels: PanelVisibility::default(),
+            status_reset: None,
         }
     }
 
@@ -135,11 +170,14 @@ impl EditorView {
                 self.pdf_version = document.pdf_version;
                 self.pages = pages.into_iter().map(DocumentPage::placeholder).collect();
                 self.loaded_pages = 0;
+                self.busy = true;
+                self.severity = Severity::Info;
                 self.status = format!("Loading {} pages…", document.page_count).into();
                 self.detail = None;
                 self.extracted_text = None;
                 self.drag = None;
                 self.selected_rects.clear();
+                self.selected_text = "No text selected".into();
                 self.inline_text = None;
                 self.inline_note = None;
                 self.search_query.clear();
@@ -147,6 +185,9 @@ impl EditorView {
                 self.search_index = 0;
                 self.search_input
                     .update(cx, |input, cx| input.set_value("", window, cx));
+                self.sync_page_input(window, cx);
+                window.set_window_title(&file_name(&path));
+                window.set_window_edited(false);
                 self.forms = forms
                     .into_iter()
                     .map(|field| {
@@ -175,18 +216,58 @@ impl EditorView {
                         self.loaded_pages += 1;
                     }
                 }
+                if self.loaded_pages >= self.page_count {
+                    self.busy = false;
+                }
                 self.refresh_search(cx, true);
                 self.refresh_active_page();
             }
+            EditorUpdate::PageRerendered {
+                page_index,
+                scale,
+                rendered,
+            } => {
+                if let Some(target) = self.pages.get_mut(page_index) {
+                    target.set_rendered_image(render_image(rendered), scale);
+                }
+            }
             EditorUpdate::Saved(path) => {
-                self.edits.clear();
-                self.status = format!("Saved {}", path.display()).into();
+                self.history.clear();
+                self.busy = false;
+                window.set_window_edited(false);
+                self.flash(format!("Saved {}", file_name(&path)), Severity::Info, cx);
             }
             EditorUpdate::Failed(message) => {
-                self.status = "Operation failed".into();
-                self.detail = Some(message.into());
+                self.busy = false;
+                self.flash(message, Severity::Error, cx);
             }
         }
+        cx.notify();
+    }
+
+    /// Shows a message in the status bar and restores the document summary
+    /// afterwards, so feedback is visible but never permanently replaces state.
+    pub(super) fn flash(
+        &mut self,
+        message: impl Into<SharedString>,
+        severity: Severity,
+        cx: &mut Context<Self>,
+    ) {
+        self.status = message.into();
+        self.severity = severity;
+        let delay = if severity == Severity::Error {
+            Duration::from_secs(8)
+        } else {
+            Duration::from_secs(4)
+        };
+        self.status_reset = Some(cx.spawn(async move |view, cx| {
+            cx.background_executor().timer(delay).await;
+            let _ = view.update(cx, |view, cx| {
+                view.severity = Severity::Info;
+                view.refresh_active_page();
+                cx.notify();
+            });
+        }));
         cx.notify();
     }
 
@@ -194,17 +275,20 @@ impl EditorView {
         let Some(page) = self.pages.get(self.page_index) else {
             return;
         };
-        let marker = if self.edits.is_empty() {
-            ""
+        let marker = if self.history.is_empty() {
+            String::new()
         } else {
-            " · Edited"
+            format!(" · {} unsaved edit(s)", self.history.len())
+        };
+        let loading = if self.loaded_pages < self.page_count {
+            format!(" · loading {}/{}", self.loaded_pages, self.page_count)
+        } else {
+            String::new()
         };
         let name = self.path.as_deref().map_or_else(|| "PDF".into(), file_name);
         self.status = format!(
-            "{name} · page {} of {} · loaded {}/{}{marker}",
+            "{name} · page {} of {}{loading}{marker}",
             self.page_index + 1,
-            self.page_count,
-            self.loaded_pages,
             self.page_count,
         )
         .into();
@@ -223,7 +307,7 @@ impl EditorView {
     }
 
     fn pending_form_value(&self, field: &FormField) -> String {
-        self.edits
+        self.history
             .iter()
             .rev()
             .find_map(|edit| match edit {
@@ -231,6 +315,39 @@ impl EditorView {
                 _ => None,
             })
             .unwrap_or_else(|| field.value.clone())
+    }
+
+    /// Keeps the page box in sync with the current page unless the user is typing in it.
+    pub(super) fn sync_page_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui::Focusable;
+        if self.page_input.focus_handle(cx).is_focused(window) {
+            return;
+        }
+        let value = if self.page_count == 0 {
+            String::new()
+        } else {
+            (self.page_index + 1).to_string()
+        };
+        self.page_input
+            .update(cx, |input, cx| input.set_value(value, window, cx));
+    }
+
+    fn commit_page_input(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let raw = self.page_input.read(cx).value().trim().to_owned();
+        match raw.parse::<usize>() {
+            Ok(number) if number >= 1 && number <= self.page_count => {
+                self.jump_to_page(number - 1, cx);
+                self.focus_handle.focus(window);
+            }
+            _ => {
+                self.flash(
+                    format!("Enter a page between 1 and {}", self.page_count.max(1)),
+                    Severity::Error,
+                    cx,
+                );
+            }
+        }
+        self.sync_page_input(window, cx);
     }
 }
 

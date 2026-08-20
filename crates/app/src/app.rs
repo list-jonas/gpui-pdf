@@ -5,10 +5,11 @@ use gpui::{
 };
 use gpui_component::{Root, Theme, ThemeMode, TitleBar};
 use ui::{
-    ActualSize, AddTextTool, CommitNote, CommitText, CopySelection, EditorRequest, EditorView,
-    FitPage, HandTool, HighlightTool, NextPage, NextSearchResult, NoteTool, OpenDocument,
-    PreviousPage, PreviousSearchResult, RedactTool, SaveDocument, Search, SelectTool, ShapeTool,
-    StrikeoutTool, UnderlineTool, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, Cancel, CopySelection, EditTool, EditorRequest, EditorView, FirstPage,
+    FitPage, FitWidth, GoToPage, HandTool, HighlightTool, LastPage, NextPage, NextSearchResult,
+    NoteTool, OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, Redo, SaveDocument,
+    SaveDocumentAs, Search, SelectAllText, SelectTool, ShapeTool, SignatureTool, StrikeoutTool,
+    UnderlineTool, Undo, ZoomIn, ZoomOut,
 };
 
 use crate::session;
@@ -39,38 +40,15 @@ pub fn run() {
         Theme::change(ThemeMode::Dark, None, cx);
         cx.activate(true);
         cx.on_action(|_: &Quit, cx| cx.quit());
-        cx.bind_keys([
-            KeyBinding::new("cmd-o", OpenDocument, Some("PdfEditor")),
-            KeyBinding::new("cmd-shift-s", SaveDocument, Some("PdfEditor")),
-            KeyBinding::new("cmd-s", SaveDocument, Some("PdfEditor")),
-            KeyBinding::new("left", PreviousPage, Some("PdfEditor")),
-            KeyBinding::new("right", NextPage, Some("PdfEditor")),
-            KeyBinding::new("v", SelectTool, Some("PdfEditor")),
-            KeyBinding::new("h", HandTool, Some("PdfEditor")),
-            KeyBinding::new("u", HighlightTool, Some("PdfEditor")),
-            KeyBinding::new("cmd-u", UnderlineTool, Some("PdfEditor")),
-            KeyBinding::new("cmd-shift-x", StrikeoutTool, Some("PdfEditor")),
-            KeyBinding::new("t", AddTextTool, Some("PdfEditor")),
-            KeyBinding::new("n", NoteTool, Some("PdfEditor")),
-            KeyBinding::new("g", ShapeTool, Some("PdfEditor")),
-            KeyBinding::new("r", RedactTool, Some("PdfEditor")),
-            KeyBinding::new("cmd-=", ZoomIn, Some("PdfEditor")),
-            KeyBinding::new("cmd--", ZoomOut, Some("PdfEditor")),
-            KeyBinding::new("cmd-0", FitPage, Some("PdfEditor")),
-            KeyBinding::new("cmd-1", ActualSize, Some("PdfEditor")),
-            KeyBinding::new("cmd-enter", CommitText, Some("PdfEditor")),
-            KeyBinding::new("cmd-shift-enter", CommitNote, Some("PdfEditor")),
-            KeyBinding::new("cmd-c", CopySelection, Some("PdfEditor")),
-            KeyBinding::new("cmd-f", Search, Some("PdfEditor")),
-            KeyBinding::new("cmd-g", NextSearchResult, Some("PdfEditor")),
-            KeyBinding::new("cmd-shift-g", PreviousSearchResult, Some("PdfEditor")),
-            KeyBinding::new("cmd-q", Quit, None),
-        ]);
+        cx.bind_keys(key_bindings());
         cx.set_menus(app_menus());
         let requests = request_sender.clone();
         let updates = update_receiver.clone();
         let window_options = WindowOptions {
-            titlebar: Some(TitleBar::title_bar_options()),
+            titlebar: Some(gpui::TitlebarOptions {
+                title: Some("GPUI PDF".into()),
+                ..TitleBar::title_bar_options()
+            }),
             window_min_size: Some(size(px(900.0), px(620.0))),
             ..WindowOptions::default()
         };
@@ -96,7 +74,23 @@ fn app_menus() -> Vec<Menu> {
             name: "File".into(),
             items: vec![
                 MenuItem::action("Open…", OpenDocument),
-                MenuItem::action("Save As…", SaveDocument),
+                MenuItem::separator(),
+                MenuItem::action("Save", SaveDocument),
+                MenuItem::action("Save As…", SaveDocumentAs),
+            ],
+        },
+        Menu {
+            name: "Edit".into(),
+            items: vec![
+                MenuItem::action("Undo", Undo),
+                MenuItem::action("Redo", Redo),
+                MenuItem::separator(),
+                MenuItem::action("Copy", CopySelection),
+                MenuItem::action("Select All Text", SelectAllText),
+                MenuItem::separator(),
+                MenuItem::action("Find…", Search),
+                MenuItem::action("Find Next", NextSearchResult),
+                MenuItem::action("Find Previous", PreviousSearchResult),
             ],
         },
         Menu {
@@ -105,16 +99,9 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Zoom In", ZoomIn),
                 MenuItem::action("Zoom Out", ZoomOut),
                 MenuItem::separator(),
-                MenuItem::action("Fit Page", FitPage),
                 MenuItem::action("Actual Size", ActualSize),
-            ],
-        },
-        Menu {
-            name: "Edit".into(),
-            items: vec![
-                MenuItem::action("Find", Search),
-                MenuItem::action("Find Next", NextSearchResult),
-                MenuItem::action("Find Previous", PreviousSearchResult),
+                MenuItem::action("Fit Page", FitPage),
+                MenuItem::action("Fit Width", FitWidth),
             ],
         },
         Menu {
@@ -122,6 +109,10 @@ fn app_menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::action("Previous Page", PreviousPage),
                 MenuItem::action("Next Page", NextPage),
+                MenuItem::separator(),
+                MenuItem::action("First Page", FirstPage),
+                MenuItem::action("Last Page", LastPage),
+                MenuItem::action("Go to Page…", GoToPage),
             ],
         },
         Menu {
@@ -129,19 +120,70 @@ fn app_menus() -> Vec<Menu> {
             items: vec![
                 MenuItem::action("Select Text", SelectTool),
                 MenuItem::action("Hand / Pan", HandTool),
+                MenuItem::action("Edit Annotations", EditTool),
+                MenuItem::separator(),
                 MenuItem::action("Highlight Text", HighlightTool),
                 MenuItem::action("Underline Text", UnderlineTool),
                 MenuItem::action("Strike Out Text", StrikeoutTool),
+                MenuItem::separator(),
                 MenuItem::action("Add Text", AddTextTool),
                 MenuItem::action("Add Comment", NoteTool),
+                MenuItem::action("Add Signature", SignatureTool),
                 MenuItem::action("Draw Shape", ShapeTool),
                 MenuItem::action("Redact", RedactTool),
-                MenuItem::separator(),
-                MenuItem::action("Commit Text", CommitText),
-                MenuItem::action("Commit Comment", CommitNote),
-                MenuItem::action("Copy Selection", CopySelection),
             ],
         },
+    ]
+}
+
+/// Tool shortcuts must not fire while a text field owns the keyboard, so
+/// single-letter bindings are scoped to the editor without an active input.
+fn key_bindings() -> Vec<KeyBinding> {
+    const EDITOR: Option<&str> = Some("PdfEditor");
+    const CANVAS: Option<&str> = Some("PdfEditor && !Input");
+    vec![
+        KeyBinding::new("cmd-o", OpenDocument, EDITOR),
+        KeyBinding::new("cmd-s", SaveDocument, EDITOR),
+        KeyBinding::new("cmd-shift-s", SaveDocumentAs, EDITOR),
+        KeyBinding::new("cmd-z", Undo, EDITOR),
+        KeyBinding::new("cmd-shift-z", Redo, EDITOR),
+        KeyBinding::new("cmd-c", CopySelection, CANVAS),
+        KeyBinding::new("cmd-a", SelectAllText, CANVAS),
+        KeyBinding::new("escape", Cancel, EDITOR),
+        KeyBinding::new("cmd-f", Search, EDITOR),
+        KeyBinding::new("cmd-g", NextSearchResult, EDITOR),
+        KeyBinding::new("cmd-shift-g", PreviousSearchResult, EDITOR),
+        KeyBinding::new("enter", NextSearchResult, Some("PdfEditor && SearchField")),
+        KeyBinding::new(
+            "shift-enter",
+            PreviousSearchResult,
+            Some("PdfEditor && SearchField"),
+        ),
+        KeyBinding::new("left", PreviousPage, CANVAS),
+        KeyBinding::new("right", NextPage, CANVAS),
+        KeyBinding::new("pageup", PreviousPage, CANVAS),
+        KeyBinding::new("pagedown", NextPage, CANVAS),
+        KeyBinding::new("home", FirstPage, CANVAS),
+        KeyBinding::new("end", LastPage, CANVAS),
+        KeyBinding::new("cmd-j", GoToPage, EDITOR),
+        KeyBinding::new("cmd-=", ZoomIn, EDITOR),
+        KeyBinding::new("cmd-+", ZoomIn, EDITOR),
+        KeyBinding::new("cmd--", ZoomOut, EDITOR),
+        KeyBinding::new("cmd-0", ActualSize, EDITOR),
+        KeyBinding::new("cmd-1", FitPage, EDITOR),
+        KeyBinding::new("cmd-2", FitWidth, EDITOR),
+        KeyBinding::new("v", SelectTool, CANVAS),
+        KeyBinding::new("e", EditTool, CANVAS),
+        KeyBinding::new("h", HandTool, CANVAS),
+        KeyBinding::new("u", HighlightTool, CANVAS),
+        KeyBinding::new("l", UnderlineTool, CANVAS),
+        KeyBinding::new("k", StrikeoutTool, CANVAS),
+        KeyBinding::new("t", AddTextTool, CANVAS),
+        KeyBinding::new("n", NoteTool, CANVAS),
+        KeyBinding::new("s", SignatureTool, CANVAS),
+        KeyBinding::new("g", ShapeTool, CANVAS),
+        KeyBinding::new("r", RedactTool, CANVAS),
+        KeyBinding::new("cmd-q", Quit, None),
     ]
 }
 

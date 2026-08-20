@@ -57,8 +57,32 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/hugeicons/sign.svg"),
     ),
     (
-        "hugeicons/more.svg",
-        include_bytes!("../assets/hugeicons/more.svg"),
+        "hugeicons/undo.svg",
+        include_bytes!("../assets/hugeicons/undo.svg"),
+    ),
+    (
+        "hugeicons/redo.svg",
+        include_bytes!("../assets/hugeicons/redo.svg"),
+    ),
+    (
+        "hugeicons/save.svg",
+        include_bytes!("../assets/hugeicons/save.svg"),
+    ),
+    (
+        "hugeicons/close.svg",
+        include_bytes!("../assets/hugeicons/close.svg"),
+    ),
+    (
+        "hugeicons/fit-width.svg",
+        include_bytes!("../assets/hugeicons/fit-width.svg"),
+    ),
+    (
+        "hugeicons/sidebar.svg",
+        include_bytes!("../assets/hugeicons/sidebar.svg"),
+    ),
+    (
+        "hugeicons/panel.svg",
+        include_bytes!("../assets/hugeicons/panel.svg"),
     ),
     (
         "hugeicons/search.svg",
@@ -117,13 +141,14 @@ pub(crate) enum HugeIcon {
     Select,
     Hand,
     Annotate,
+    Edit,
     Text,
     Highlight,
     Underline,
     Strike,
     Redact,
     Shapes,
-    More,
+    Sign,
     Search,
     Open,
     Share,
@@ -132,6 +157,13 @@ pub(crate) enum HugeIcon {
     ZoomIn,
     ZoomOut,
     Fit,
+    FitWidth,
+    Undo,
+    Redo,
+    Save,
+    Close,
+    Sidebar,
+    Panel,
 }
 
 impl IconNamed for HugeIcon {
@@ -140,13 +172,14 @@ impl IconNamed for HugeIcon {
             Self::Select => "hugeicons/select.svg",
             Self::Hand => "hugeicons/hand.svg",
             Self::Annotate => "hugeicons/annotate.svg",
+            Self::Edit => "hugeicons/edit.svg",
             Self::Text => "hugeicons/text.svg",
             Self::Highlight => "hugeicons/highlight.svg",
             Self::Underline => "hugeicons/underline.svg",
             Self::Strike => "hugeicons/strike.svg",
             Self::Redact => "hugeicons/redact.svg",
             Self::Shapes => "hugeicons/shapes.svg",
-            Self::More => "hugeicons/more.svg",
+            Self::Sign => "hugeicons/sign.svg",
             Self::Search => "hugeicons/search.svg",
             Self::Open => "hugeicons/open.svg",
             Self::Share => "hugeicons/share.svg",
@@ -155,6 +188,13 @@ impl IconNamed for HugeIcon {
             Self::ZoomIn => "hugeicons/zoom-in.svg",
             Self::ZoomOut => "hugeicons/zoom-out.svg",
             Self::Fit => "hugeicons/fit.svg",
+            Self::FitWidth => "hugeicons/fit-width.svg",
+            Self::Undo => "hugeicons/undo.svg",
+            Self::Redo => "hugeicons/redo.svg",
+            Self::Save => "hugeicons/save.svg",
+            Self::Close => "hugeicons/close.svg",
+            Self::Sidebar => "hugeicons/sidebar.svg",
+            Self::Panel => "hugeicons/panel.svg",
         }
         .into()
     }
