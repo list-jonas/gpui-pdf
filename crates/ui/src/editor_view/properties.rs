@@ -143,19 +143,19 @@ impl EditorView {
                     div()
                         .flex()
                         .gap_2()
-                        .child(Self::color_button(
+                        .child(self.color_button(
                             "yellow",
                             0x00ff_dc33,
                             (1.0, 0.86, 0.2),
                             cx,
                         ))
-                        .child(Self::color_button(
+                        .child(self.color_button(
                             "green",
                             0x0078_d98b,
                             (0.35, 0.85, 0.45),
                             cx,
                         ))
-                        .child(Self::color_button(
+                        .child(self.color_button(
                             "pink",
                             0x00ff_7bab,
                             (1.0, 0.35, 0.6),
@@ -164,13 +164,13 @@ impl EditorView {
                 ),
             Tool::Underline | Tool::Strikeout => panel
                 .child("Drag across text. Markup follows extracted text runs.")
-                .child(Self::annotation_color_buttons(cx)),
+                .child(self.annotation_color_buttons(cx)),
             Tool::AddText => {
                 panel.child("Click page and type. Click a saved text overlay to edit it.")
             }
             Tool::Note => panel
                 .child("Click page and type. Click a saved comment to edit it.")
-                .child(Self::annotation_color_buttons(cx)),
+                .child(self.annotation_color_buttons(cx)),
             Tool::Signature => panel.child(
                 "Click page and type a visual signature. This is not a certificate-backed digital signature.",
             ),
@@ -193,9 +193,9 @@ impl EditorView {
                             cx,
                         )),
                 )
-                .child(Self::annotation_color_buttons(cx)),
+                .child(self.annotation_color_buttons(cx)),
             Tool::Redact => panel
-                .child("Drag a rectangle over content. Save As applies permanent redaction.")
+                .child("Drag a rectangle over content. Saving applies permanent redaction.")
                 .child(
                     div()
                         .p_3()
@@ -208,39 +208,33 @@ impl EditorView {
     }
 
     fn color_button(
+        &self,
         id: &'static str,
         color: u32,
         value: (f64, f64, f64),
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
-            .id(id)
-            .size_8()
-            .rounded_full()
-            .bg(rgb(color))
-            .border_1()
-            .border_color(rgb(0x0090_9499))
-            .cursor_pointer()
+        swatch(id, color, same_color(self.highlight_color, value))
             .on_click(cx.listener(move |view, _, _, cx| view.set_highlight_color(value, cx)))
     }
 
-    fn annotation_color_buttons(cx: &mut Context<Self>) -> impl IntoElement {
+    fn annotation_color_buttons(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .gap_2()
-            .child(Self::annotation_color_button(
+            .child(self.annotation_color_button(
                 "annotation-blue",
                 0x003b_82f6,
                 (0.23, 0.51, 0.96),
                 cx,
             ))
-            .child(Self::annotation_color_button(
+            .child(self.annotation_color_button(
                 "annotation-red",
                 0x00ef_4444,
                 (0.94, 0.27, 0.27),
                 cx,
             ))
-            .child(Self::annotation_color_button(
+            .child(self.annotation_color_button(
                 "annotation-green",
                 0x0022_c55e,
                 (0.13, 0.65, 0.32),
@@ -249,19 +243,13 @@ impl EditorView {
     }
 
     fn annotation_color_button(
+        &self,
         id: &'static str,
         color: u32,
         value: (f64, f64, f64),
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        div()
-            .id(id)
-            .size_8()
-            .rounded_full()
-            .bg(rgb(color))
-            .border_1()
-            .border_color(rgb(0x0090_9499))
-            .cursor_pointer()
+        swatch(id, color, same_color(self.annotation_color, value))
             .on_click(cx.listener(move |view, _, _, cx| view.set_annotation_color(value, cx)))
     }
 
@@ -275,6 +263,28 @@ impl EditorView {
             .label(label)
             .on_click(cx.listener(move |view, _, _, cx| view.set_shape_kind(kind, cx)))
     }
+}
+
+/// Tolerant comparison for the small set of preset colors.
+fn same_color(left: (f64, f64, f64), right: (f64, f64, f64)) -> bool {
+    (left.0 - right.0).abs() < 0.01
+        && (left.1 - right.1).abs() < 0.01
+        && (left.2 - right.2).abs() < 0.01
+}
+
+fn swatch(id: &'static str, color: u32, selected: bool) -> gpui::Stateful<gpui::Div> {
+    div()
+        .id(id)
+        .size_8()
+        .rounded_full()
+        .bg(rgb(color))
+        .border_2()
+        .border_color(if selected {
+            rgb(0x00ff_ffff)
+        } else {
+            rgb(0x0090_9499)
+        })
+        .cursor_pointer()
 }
 
 fn edit_label(edit: &EditCommand) -> String {
