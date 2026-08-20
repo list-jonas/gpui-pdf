@@ -268,6 +268,28 @@ mod tests {
     }
 
     #[test]
+    fn saving_over_the_source_file_keeps_a_readable_pdf() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sample.pdf");
+        std::fs::write(&path, test_support::form_pdf()).unwrap();
+        let (sender, receiver) = async_channel::unbounded();
+
+        let edits = vec![pdf_engine::EditCommand::FillForm {
+            name: "customer.name".to_owned(),
+            value: "Ada".to_owned(),
+        }];
+        save(&path, &path, 0, edits, &sender).unwrap();
+
+        assert!(
+            receiver
+                .recv_blocking()
+                .is_ok_and(|update| matches!(update, EditorUpdate::Saved(_)))
+        );
+        let reopened = ZpdfEngine.open(OpenRequest::new(std::fs::read(&path).unwrap()));
+        assert!(reopened.is_ok());
+    }
+
+    #[test]
     fn engine_iterates_and_renders_every_fixture_page() {
         let mut document = ZpdfEngine
             .open(OpenRequest::new(test_support::multi_page_pdf()))
