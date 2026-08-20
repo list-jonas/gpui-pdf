@@ -184,3 +184,50 @@ fn key_bindings() -> Vec<KeyBinding> {
 fn file_url_to_path(value: &str) -> Option<PathBuf> {
     url::Url::parse(value).ok()?.to_file_path().ok()
 }
+
+#[cfg(test)]
+mod tests {
+    use gpui::{KeyContext, Keymap, Keystroke};
+
+    use super::key_bindings;
+
+    fn resolves(keystroke: &str, contexts: &[&str]) -> Vec<String> {
+        let keymap = Keymap::new(key_bindings());
+        let stack: Vec<KeyContext> = contexts
+            .iter()
+            .map(|context| KeyContext::parse(context).unwrap())
+            .collect();
+        let (bindings, _) =
+            keymap.bindings_for_input(&[Keystroke::parse(keystroke).unwrap()], &stack);
+        bindings
+            .iter()
+            .map(|binding| binding.action().name().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn editor_shortcuts_resolve_on_the_canvas() {
+        for (keystroke, action) in [
+            ("cmd-z", "Undo"),
+            ("cmd-f", "Search"),
+            ("cmd-o", "OpenDocument"),
+            ("cmd-2", "FitWidth"),
+            ("v", "SelectTool"),
+        ] {
+            let resolved = resolves(keystroke, &["Root", "PdfEditor"]);
+            assert!(
+                resolved.iter().any(|name| name.ends_with(action)),
+                "{keystroke} did not resolve to {action}: {resolved:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn tool_letters_are_inert_inside_text_inputs() {
+        let resolved = resolves("v", &["Root", "PdfEditor", "Input"]);
+        assert!(
+            resolved.is_empty(),
+            "tool shortcut leaked into input: {resolved:?}"
+        );
+    }
+}
