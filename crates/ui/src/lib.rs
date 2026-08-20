@@ -4,6 +4,7 @@ mod field_input;
 mod icons;
 mod page_image;
 mod protocol;
+mod theme;
 
 pub use actions::{
     ActualSize, AddTextTool, Cancel, CopySelection, EditTool, FirstPage, FitPage, FitWidth,
@@ -15,3 +16,4 @@ pub use actions::{
 pub use editor_view::EditorView;
 pub use icons::Assets;
 pub use protocol::{EditorRequest, EditorUpdate, OpenedDocument, PageKind, PageRequest};
+pub use theme::apply_glass;

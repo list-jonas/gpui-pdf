@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
 use gpui::{
-    AppContext, Application, KeyBinding, Menu, MenuItem, SystemMenuType, WindowOptions, px, size,
+    AppContext, Application, KeyBinding, Menu, MenuItem, SystemMenuType,
+    WindowBackgroundAppearance, WindowOptions, px, size,
 };
-use gpui_component::{Root, Theme, ThemeMode, TitleBar};
+use gpui_component::Root;
 use ui::{
     ActualSize, AddTextTool, Cancel, CopySelection, EditTool, EditorRequest, EditorView, FirstPage,
     FitPage, FitWidth, GoToPage, HandTool, HighlightTool, LastPage, NextPage, NextSearchResult,
@@ -37,7 +38,7 @@ pub fn run() {
     });
     application.run(move |cx| {
         gpui_component::init(cx);
-        Theme::change(ThemeMode::Dark, None, cx);
+        ui::apply_glass(cx);
         cx.activate(true);
         cx.on_action(|_: &Quit, cx| cx.quit());
         cx.bind_keys(key_bindings());
@@ -46,10 +47,16 @@ pub fn run() {
         let updates = update_receiver.clone();
         let window_options = WindowOptions {
             titlebar: Some(gpui::TitlebarOptions {
-                title: Some("GPUI PDF".into()),
-                ..TitleBar::title_bar_options()
+                // The app draws its own unified title bar; AppKit only owns
+                // the traffic lights, inset to sit on that bar's center line.
+                title: None,
+                appears_transparent: true,
+                traffic_light_position: Some(gpui::point(px(14.0), px(13.0))),
             }),
             window_min_size: Some(size(px(900.0), px(620.0))),
+            // Translucent chrome over a desktop blur (macOS vibrancy). Every
+            // surface except the PDF page paints a tint on top of it.
+            window_background: WindowBackgroundAppearance::Blurred,
             ..WindowOptions::default()
         };
         cx.open_window(window_options, |window, cx| {

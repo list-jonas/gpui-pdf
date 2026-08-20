@@ -1,17 +1,17 @@
 use gpui::{
     Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
-    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px, rgb,
+    StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::scroll::ScrollableElement;
 
 use super::model::{Tool, shape_label};
 use crate::EditorView;
+use crate::theme::{
+    BORDER, BORDER_STRONG, DANGER_TEXT, DANGER_TINT, PANEL_TINT, TEXT_FAINT, TEXT_MUTED, WELL_TINT,
+    solid, tint,
+};
 use pdf_engine::{EditCommand, ShapeKind};
-
-const SURFACE: u32 = 0x0011_1418;
-const BORDER: u32 = 0x0025_292f;
-const TEXT_MUTED: u32 = 0x009c_a3ad;
 
 impl EditorView {
     pub(super) fn render_properties(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -23,9 +23,9 @@ impl EditorView {
             .flex()
             .flex_col()
             .gap_4()
-            .bg(rgb(SURFACE))
+            .bg(tint(PANEL_TINT))
             .border_l_1()
-            .border_color(rgb(BORDER))
+            .border_color(tint(BORDER))
             .child(
                 div()
                     .flex()
@@ -41,9 +41,9 @@ impl EditorView {
                             .px_2()
                             .py_1()
                             .rounded_md()
-                            .bg(rgb(0x001c_2026))
+                            .bg(tint(WELL_TINT))
                             .text_xs()
-                            .text_color(rgb(TEXT_MUTED))
+                            .text_color(tint(TEXT_MUTED))
                             .child(self.tool.shortcut()),
                     ),
             );
@@ -55,9 +55,9 @@ impl EditorView {
                     div()
                         .pt_4()
                         .border_t_1()
-                        .border_color(rgb(BORDER))
+                        .border_color(tint(BORDER))
                         .text_xs()
-                        .text_color(rgb(TEXT_MUTED))
+                        .text_color(tint(TEXT_MUTED))
                         .child(detail),
                 )
             })
@@ -67,11 +67,11 @@ impl EditorView {
     /// Lists queued edits so users can see and remove pending changes.
     fn render_edit_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let mut list = div().flex().flex_col().gap_2().pt_3().border_t_1();
-        list = list.border_color(rgb(BORDER)).child(
+        list = list.border_color(tint(BORDER)).child(
             div()
                 .text_xs()
                 .font_weight(FontWeight::SEMIBOLD)
-                .text_color(rgb(TEXT_MUTED))
+                .text_color(tint(TEXT_FAINT))
                 .child(if self.history.is_empty() {
                     "NO PENDING EDITS".to_owned()
                 } else {
@@ -88,7 +88,7 @@ impl EditorView {
                     .px_2()
                     .py_1()
                     .rounded_md()
-                    .bg(rgb(0x001c_2026))
+                    .bg(tint(WELL_TINT))
                     .text_xs()
                     .child(div().flex_1().truncate().child(edit_label(edit)))
                     .child(
@@ -123,7 +123,7 @@ impl EditorView {
                         div()
                             .p_3()
                             .rounded_md()
-                            .bg(rgb(0x001c_2026))
+                            .bg(tint(WELL_TINT))
                             .text_sm()
                             .child(self.selected_text.clone()),
                     ),
@@ -200,8 +200,8 @@ impl EditorView {
                     div()
                         .p_3()
                         .rounded_md()
-                        .bg(rgb(0x0038_1719))
-                        .text_color(rgb(0x00ff_a4a4))
+                        .bg(tint(DANGER_TINT))
+                        .text_color(solid(DANGER_TEXT))
                         .child("Verify saved output before distributing."),
                 ),
         }
@@ -277,12 +277,12 @@ fn swatch(id: &'static str, color: u32, selected: bool) -> gpui::Stateful<gpui::
         .id(id)
         .size_8()
         .rounded_full()
-        .bg(rgb(color))
+        .bg(solid(color))
         .border_2()
         .border_color(if selected {
-            rgb(0x00ff_ffff)
+            solid(0x00ff_ffff)
         } else {
-            rgb(0x0090_9499)
+            tint(BORDER_STRONG)
         })
         .cursor_pointer()
 }

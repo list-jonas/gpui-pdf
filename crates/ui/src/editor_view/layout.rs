@@ -1,6 +1,6 @@
 use gpui::{
     Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement, Render,
-    StatefulInteractiveElement, Styled, Window, div, img, prelude::FluentBuilder, px, rgb, rgba,
+    StatefulInteractiveElement, Styled, Window, div, img, prelude::FluentBuilder, px,
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
@@ -15,15 +15,16 @@ use crate::actions::{
     ZoomIn, ZoomOut,
 };
 use crate::icons::HugeIcon;
+use crate::theme::{
+    ACCENT, ACCENT_SOFT, ACTIVE, BORDER, BORDER_STRONG, CHROME_TINT, DANGER, FLOAT_TINT, HOVER,
+    PANEL_TINT, TEXT, TEXT_FAINT, TEXT_MUTED, WELL_TINT, solid, tint,
+};
 
 use super::Severity;
 use super::model::Tool;
 
-const SURFACE: u32 = 0x0011_1418;
-const BORDER: u32 = 0x0025_292f;
-const TEXT_MUTED: u32 = 0x009c_a3ad;
-const ACCENT: u32 = 0x004e_9cff;
-const DANGER: u32 = 0x00ff_6b6b;
+/// Compact unified title bar: one line, no document path, chrome trailing.
+const TITLE_BAR_HEIGHT: f32 = 40.0;
 
 #[derive(Clone, Copy)]
 struct ToolButtonSpec {
@@ -41,52 +42,37 @@ impl EditorView {
             .path
             .as_deref()
             .map_or_else(|| "GPUI PDF".to_owned(), super::document_io::file_name);
-        let subtitle = self.path.as_deref().map_or_else(
-            || "No document open".to_owned(),
-            |path| path.display().to_string(),
-        );
 
         TitleBar::new()
-            .h(px(52.0))
-            .bg(rgb(0x0014_171b))
-            .border_color(rgb(0x0028_2c32))
-            .text_color(rgb(0x00f5_f7fa))
+            .h(px(TITLE_BAR_HEIGHT))
+            .bg(tint(CHROME_TINT))
+            .border_color(tint(BORDER))
+            .text_color(solid(TEXT))
             .child(
                 div()
                     .flex()
                     .items_center()
                     .size_full()
-                    .gap_3()
-                    .pr_3()
+                    .gap_2()
+                    .pr_2()
                     .child(
                         div()
-                            .flex()
-                            .flex_col()
                             .min_w_0()
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .truncate()
-                                    .child(title),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(rgb(TEXT_MUTED))
-                                    .truncate()
-                                    .child(subtitle),
-                            ),
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .truncate()
+                            .child(title),
                     )
                     .when(!self.history.is_empty(), |bar| {
                         bar.child(
                             div()
                                 .flex_shrink_0()
                                 .px_2()
-                                .py_1()
+                                .py_0p5()
                                 .rounded_full()
-                                .bg(rgb(0x0027_334a))
+                                .bg(tint(ACCENT_SOFT))
                                 .text_xs()
-                                .text_color(rgb(0x008b_a9ff))
+                                .text_color(solid(ACCENT))
                                 .child(format!("{} unsaved", self.history.len())),
                         )
                     })
@@ -204,13 +190,13 @@ impl EditorView {
                 .pl_2()
                 .rounded_lg()
                 .border_1()
-                .border_color(rgb(0x0031_353c))
-                .bg(rgb(0x0011_1316))
+                .border_color(tint(BORDER_STRONG))
+                .bg(tint(WELL_TINT))
                 .text_sm()
                 .child(
                     Icon::new(HugeIcon::Search)
                         .size_4()
-                        .text_color(rgb(TEXT_MUTED)),
+                        .text_color(tint(TEXT_MUTED)),
                 )
                 .child(
                     div().flex_1().min_w_0().child(
@@ -227,7 +213,7 @@ impl EditorView {
                             .min_w(px(34.0))
                             .text_center()
                             .text_xs()
-                            .text_color(rgb(TEXT_MUTED))
+                            .text_color(tint(TEXT_MUTED))
                             .child(status),
                     )
                 })
@@ -270,15 +256,15 @@ impl EditorView {
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .h(px(82.0))
+            .h(px(72.0))
             .flex()
             .items_center()
             .justify_center()
             .gap_1()
             .px_4()
-            .bg(rgb(0x0017_1a1e))
+            .bg(tint(CHROME_TINT))
             .border_b_1()
-            .border_color(rgb(0x0025_292f))
+            .border_color(tint(BORDER))
             .child(self.tool_button(
                 ToolButtonSpec {
                     id: "select",
@@ -423,7 +409,7 @@ impl EditorView {
         div()
             .id(spec.id)
             .w(px(70.0))
-            .h(px(64.0))
+            .h(px(58.0))
             .flex()
             .flex_col()
             .items_center()
@@ -431,13 +417,11 @@ impl EditorView {
             .gap_1()
             .rounded_lg()
             .text_xs()
-            .text_color(rgb(0x00eb_edf0))
+            .text_color(solid(TEXT))
             .cursor_pointer()
-            .when(selected, |item| item.bg(rgb(0x0027_2d38)))
-            .when(!selected, |item| {
-                item.hover(|style| style.bg(rgb(0x0020_242a)))
-            })
-            .child(Icon::new(spec.icon).size_5().text_color(rgb(spec.color)))
+            .when(selected, |item| item.bg(tint(ACTIVE)))
+            .when(!selected, |item| item.hover(|style| style.bg(tint(HOVER))))
+            .child(Icon::new(spec.icon).size_5().text_color(solid(spec.color)))
             .child(spec.label)
             .on_click(cx.listener(move |_, _, window, cx| {
                 window.dispatch_action(action.boxed_clone(), cx);
@@ -465,10 +449,10 @@ impl EditorView {
                     .px_2()
                     .rounded_xl()
                     .border_1()
-                    .border_color(rgb(0x0030_343b))
-                    .bg(rgba(0x191d_23f2))
+                    .border_color(tint(BORDER_STRONG))
+                    .bg(tint(FLOAT_TINT))
                     .shadow_xl()
-                    .text_color(rgb(0x00f3_f4f6))
+                    .text_color(solid(TEXT))
                     .child(
                         Button::new("previous")
                             .icon(HugeIcon::Previous)
@@ -493,8 +477,8 @@ impl EditorView {
                                     .h(px(28.0))
                                     .rounded_md()
                                     .border_1()
-                                    .border_color(rgb(0x0031_353c))
-                                    .bg(rgb(0x0011_1316))
+                                    .border_color(tint(BORDER_STRONG))
+                                    .bg(tint(WELL_TINT))
                                     .child(
                                         Input::new(&self.page_input)
                                             .appearance(false)
@@ -504,7 +488,7 @@ impl EditorView {
                             )
                             .child(
                                 div()
-                                    .text_color(rgb(TEXT_MUTED))
+                                    .text_color(tint(TEXT_MUTED))
                                     .child(format!("/ {}", self.page_count.max(1))),
                             ),
                     )
@@ -520,7 +504,7 @@ impl EditorView {
                                 view.next_page(&NextPage, window, cx);
                             })),
                     )
-                    .child(div().h_6().w_px().mx_1().bg(rgb(0x0033_3740)))
+                    .child(div().h_6().w_px().mx_1().bg(tint(BORDER_STRONG)))
                     .child(
                         Button::new("zoom-out")
                             .icon(HugeIcon::ZoomOut)
@@ -580,8 +564,8 @@ impl EditorView {
     /// and errors stay visually distinct.
     fn render_status_bar(&self) -> impl IntoElement {
         let color = match self.severity {
-            Severity::Error => DANGER,
-            Severity::Info => TEXT_MUTED,
+            Severity::Error => solid(DANGER),
+            Severity::Info => tint(TEXT_MUTED),
         };
         div()
             .h(px(26.0))
@@ -590,24 +574,24 @@ impl EditorView {
             .items_center()
             .gap_2()
             .px_3()
-            .bg(rgb(SURFACE))
+            .bg(tint(CHROME_TINT))
             .border_t_1()
-            .border_color(rgb(BORDER))
+            .border_color(tint(BORDER))
             .text_xs()
-            .child(div().size_2().rounded_full().bg(rgb(if self.busy {
-                ACCENT
+            .child(div().size_2().rounded_full().bg(if self.busy {
+                solid(ACCENT)
             } else {
-                0x0035_3a41
-            })))
+                tint(BORDER_STRONG)
+            }))
             .child(
                 div()
-                    .text_color(rgb(color))
+                    .text_color(color)
                     .truncate()
                     .child(self.status.clone()),
             )
             .child(div().flex_1())
             .when_some(self.detail.clone(), |bar, detail| {
-                bar.child(div().text_color(rgb(TEXT_MUTED)).child(detail))
+                bar.child(div().text_color(tint(TEXT_MUTED)).child(detail))
             })
     }
 
@@ -628,12 +612,12 @@ impl EditorView {
             let mut preview = div()
                 .w(px(104.0))
                 .h(px(104.0 * ratio))
-                .bg(rgb(0x00ff_ffff))
+                .bg(solid(0x00ff_ffff))
                 .border_2()
                 .border_color(if current {
-                    rgb(ACCENT)
+                    solid(ACCENT)
                 } else {
-                    rgb(0x0033_3740)
+                    tint(BORDER_STRONG)
                 })
                 .rounded_sm()
                 .overflow_hidden()
@@ -647,7 +631,7 @@ impl EditorView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .bg(rgb(0x00e8_eaee)),
+                        .bg(solid(0x00e8_eaee)),
                 );
             }
             thumbnails = thumbnails.child(
@@ -660,18 +644,16 @@ impl EditorView {
                     .p_1()
                     .rounded_md()
                     .cursor_pointer()
-                    .when(current, |item| item.bg(rgb(0x001d_2530)))
-                    .when(!current, |item| {
-                        item.hover(|style| style.bg(rgb(0x0018_1c22)))
-                    })
+                    .when(current, |item| item.bg(tint(ACTIVE)))
+                    .when(!current, |item| item.hover(|style| style.bg(tint(HOVER))))
                     .child(preview)
                     .child(
                         div()
                             .text_xs()
                             .text_color(if current {
-                                rgb(0x00e8_eef8)
+                                solid(TEXT)
                             } else {
-                                rgb(TEXT_MUTED)
+                                tint(TEXT_MUTED)
                             })
                             .child(format!("{}", page_index + 1)),
                     )
@@ -690,15 +672,15 @@ impl EditorView {
             .flex_col()
             .gap_2()
             .p_2()
-            .bg(rgb(SURFACE))
+            .bg(tint(PANEL_TINT))
             .border_r_1()
-            .border_color(rgb(BORDER))
+            .border_color(tint(BORDER))
             .child(
                 div()
                     .px_1()
                     .text_xs()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(rgb(TEXT_MUTED))
+                    .text_color(tint(TEXT_FAINT))
                     .child("PAGES"),
             )
             .child(thumbnails.overflow_y_scrollbar())
@@ -747,8 +729,8 @@ impl Render for EditorView {
             .flex_col()
             .size_full()
             .overflow_hidden()
-            .bg(rgb(0x0009_0c10))
-            .text_color(rgb(0x00f1_f3f5))
+            .bg(tint(crate::theme::WINDOW_FROST))
+            .text_color(solid(TEXT))
             .child(self.render_title_bar(cx))
             .child(self.render_toolbar(cx))
             .child(
@@ -757,7 +739,6 @@ impl Render for EditorView {
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .bg(rgb(0x0009_0c10))
                     .when(self.panels.sidebar, |row| {
                         row.child(self.render_left_panel(cx))
                     })

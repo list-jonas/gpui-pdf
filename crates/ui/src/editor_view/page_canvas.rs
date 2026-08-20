@@ -12,6 +12,7 @@ use crate::EditorView;
 
 use super::geometry::{RENDER_SCALE, overlay_point, overlay_rect, ui_f32};
 use super::model::{DragState, OverlayRect, Tool};
+use crate::theme::{TEXT_FAINT, TEXT_MUTED, solid, tint};
 
 impl EditorView {
     pub(super) fn render_document(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -23,11 +24,11 @@ impl EditorView {
                 .items_center()
                 .justify_center()
                 .gap_2()
-                .child(div().text_color(rgb(0x00c5_cbd3)).child("No document open"))
+                .child(div().text_color(tint(TEXT_MUTED)).child("No document open"))
                 .child(
                     div()
                         .text_sm()
-                        .text_color(rgb(0x006b_7076))
+                        .text_color(tint(TEXT_FAINT))
                         .child("Press Cmd+O, or open a PDF from Finder"),
                 )
                 .into_any_element();
@@ -64,7 +65,7 @@ impl EditorView {
             .w(px(width))
             .h(px(height))
             .flex_none()
-            .bg(rgb(0x00ff_ffff))
+            .bg(solid(0x00ff_ffff))
             .shadow_xl()
             .child(
                 canvas(
@@ -85,7 +86,7 @@ impl EditorView {
                     .size_full()
                     .items_center()
                     .justify_center()
-                    .text_color(rgb(0x0080_858b))
+                    .text_color(tint(TEXT_MUTED))
                     .child(format!("Loading page {}…", page_index + 1)),
             );
         }
