@@ -153,12 +153,6 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-f", Search, EDITOR),
         KeyBinding::new("cmd-g", NextSearchResult, EDITOR),
         KeyBinding::new("cmd-shift-g", PreviousSearchResult, EDITOR),
-        KeyBinding::new("enter", NextSearchResult, Some("PdfEditor && SearchField")),
-        KeyBinding::new(
-            "shift-enter",
-            PreviousSearchResult,
-            Some("PdfEditor && SearchField"),
-        ),
         KeyBinding::new("left", PreviousPage, CANVAS),
         KeyBinding::new("right", NextPage, CANVAS),
         KeyBinding::new("pageup", PreviousPage, CANVAS),

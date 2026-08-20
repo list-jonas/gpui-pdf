@@ -1,5 +1,5 @@
 use document_core::PdfRect;
-use gpui::{Context, Focusable, Window};
+use gpui::{Context, Window};
 
 use crate::actions::{NextSearchResult, PreviousSearchResult, Search};
 
@@ -28,10 +28,6 @@ impl EditorView {
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.focus_handle.focus(window);
         cx.notify();
-    }
-
-    pub(super) fn search_has_focus(&self, window: &Window, cx: &gpui::App) -> bool {
-        self.search_input.focus_handle(cx).is_focused(window)
     }
 
     pub(super) fn next_search_result(

@@ -151,17 +151,6 @@ impl EditorView {
         self.flash(format!("{} tool", tool.label()), Severity::Info, cx);
     }
 
-    /// Single-letter tool shortcuts must be inert while a text field is
-    /// focused, so the key context advertises the active input.
-    pub(super) fn key_context(&self, window: &Window, cx: &App) -> gpui::KeyContext {
-        let mut context = gpui::KeyContext::new_with_defaults();
-        context.add("PdfEditor");
-        if self.search_has_focus(window, cx) {
-            context.add("SearchField");
-        }
-        context
-    }
-
     pub(super) fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.panels.search {
             self.close_search(window, cx);
@@ -172,6 +161,7 @@ impl EditorView {
 
     pub(super) fn input_has_focus(&self, window: &Window, cx: &App) -> bool {
         self.search_input.focus_handle(cx).is_focused(window)
+            || self.page_input.focus_handle(cx).is_focused(window)
             // A newly created overlay receives focus before its first render. Keep tool
             // shortcuts out of the way during that short hand-off too, otherwise the
             // first typed `t`/`n` can switch tools and discard an empty overlay.

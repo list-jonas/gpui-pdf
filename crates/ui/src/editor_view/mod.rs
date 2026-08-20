@@ -68,6 +68,7 @@ pub struct EditorView {
     shape_kind: ShapeKind,
     search_input: Entity<InputState>,
     _search_subscription: Subscription,
+    _search_enter_subscription: Subscription,
     search_query: String,
     search_matches: Vec<SearchMatch>,
     search_index: usize,
@@ -103,6 +104,23 @@ impl EditorView {
         let search_subscription = cx.observe(&search_input, |view, _, cx| {
             view.refresh_search(cx, false);
         });
+        let search_enter = cx.subscribe_in(
+            &search_input,
+            window,
+            |view, _, event: &gpui_component::input::InputEvent, window, cx| {
+                if let gpui_component::input::InputEvent::PressEnter { secondary } = event {
+                    if *secondary {
+                        view.previous_search_result(
+                            &crate::actions::PreviousSearchResult,
+                            window,
+                            cx,
+                        );
+                    } else {
+                        view.next_search_result(&crate::actions::NextSearchResult, window, cx);
+                    }
+                }
+            },
+        );
         let page_input = input("Page", "", window, cx);
         let page_subscription = cx.subscribe_in(
             &page_input,
@@ -143,6 +161,7 @@ impl EditorView {
             shape_kind: ShapeKind::Rectangle,
             search_input,
             _search_subscription: search_subscription,
+            _search_enter_subscription: search_enter,
             search_query: String::new(),
             search_matches: Vec::new(),
             search_index: 0,

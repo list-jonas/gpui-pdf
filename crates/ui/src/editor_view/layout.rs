@@ -706,9 +706,9 @@ impl EditorView {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
-            .key_context(self.key_context(window, cx))
+            .key_context("PdfEditor")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::open_picker))
             .on_action(cx.listener(Self::save_document))
