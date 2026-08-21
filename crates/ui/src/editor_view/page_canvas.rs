@@ -41,7 +41,11 @@ impl EditorView {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .items_center()
+            // Pages centre themselves inside a full-width row instead of being
+            // centred by the column. Cross-axis centring would push a page that
+            // is wider than the viewport half-way off the left edge, where the
+            // scroll offset cannot reach it.
+            .items_start()
             .gap_6()
             .p_8()
             .overflow_scroll()
@@ -50,7 +54,15 @@ impl EditorView {
             .on_pinch(cx.listener(Self::document_pinch));
         scroll.style().allow_concurrent_scroll = Some(true);
         for page_index in 0..self.pages.len() {
-            scroll = scroll.child(self.render_page(page_index, cx));
+            scroll = scroll.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .flex_none()
+                    .justify_center()
+                    .min_w_full()
+                    .child(self.render_page(page_index, cx)),
+            );
         }
         scroll.into_any_element()
     }

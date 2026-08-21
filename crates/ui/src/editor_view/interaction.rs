@@ -16,7 +16,7 @@ use super::EditorView;
 use super::Severity;
 use super::document_page::DocumentPage;
 use super::geometry::page_point;
-use super::gestures::{AnchorContext, DocumentMetrics, anchored_document_offset, pinch_zoom};
+use super::gestures::{AnchorContext, anchored_document_offset, pinch_zoom};
 use super::model::{DragState, InlineNote, InlineText, SelectedRun, Tool};
 use super::schedule::{self, PageState, Viewport};
 
@@ -381,18 +381,73 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Zooms around the middle of the viewport, which is what keyboard and
+    /// toolbar zoom should do since there is no pointer driving them.
     fn set_zoom(&mut self, zoom: f32, cx: &mut Context<Self>) {
+        self.set_zoom_anchored(zoom, None, cx);
+    }
+
+    /// Zooms while holding `anchor` (a window-space point) still, so the
+    /// content under the pointer stays under the pointer. `None` anchors to the
+    /// centre of the viewport.
+    fn set_zoom_anchored(
+        &mut self,
+        zoom: f32,
+        anchor: Option<gpui::Point<gpui::Pixels>>,
+        cx: &mut Context<Self>,
+    ) {
         let clamped = zoom.clamp(MIN_ZOOM, MAX_ZOOM);
-        if (clamped - self.zoom).abs() < f32::EPSILON {
+        let old_zoom = self.zoom;
+        if (clamped - old_zoom).abs() < f32::EPSILON {
             return;
         }
         self.zoom = clamped;
+        self.anchor_scroll(old_zoom, clamped, anchor);
         self.request_visible_pages();
         self.flash(
             format!("Zoom {}%", (self.zoom * 100.0).round()),
             Severity::Info,
             cx,
         );
+    }
+
+    /// Rewrites the scroll offset so the document point under `anchor` before
+    /// the zoom is under `anchor` after it.
+    fn anchor_scroll(
+        &mut self,
+        old_zoom: f32,
+        new_zoom: f32,
+        anchor: Option<gpui::Point<gpui::Pixels>>,
+    ) {
+        if self.pages.is_empty() {
+            return;
+        }
+        let viewport = self.scroll.bounds();
+        if viewport.size.width <= px(0.0) || viewport.size.height <= px(0.0) {
+            return;
+        }
+        let anchor = anchor.unwrap_or_else(|| viewport.center());
+        let offset = self.scroll.offset();
+        let pages: Vec<(f32, f32)> = self.pages.iter().map(|page| page.image_size).collect();
+        let anchored = anchored_document_offset(
+            &pages,
+            old_zoom,
+            new_zoom,
+            AnchorContext {
+                viewport_origin: (f32::from(viewport.origin.x), f32::from(viewport.origin.y)),
+                viewport_size: (
+                    f32::from(viewport.size.width),
+                    f32::from(viewport.size.height),
+                ),
+                offset: (f32::from(offset.x), f32::from(offset.y)),
+                anchor: (f32::from(anchor.x), f32::from(anchor.y)),
+            },
+        );
+        self.scroll
+            .set_offset(point(px(anchored.offset.0), px(anchored.offset.1)));
+        // The layout for the new zoom has not run yet, so the page the anchor
+        // resolved to is a better answer than anything the scroll handle knows.
+        self.set_current_page(anchored.page_index);
     }
 
     /// Queues the work the current viewport needs: full-quality rasters for
@@ -507,14 +562,18 @@ impl EditorView {
     pub(super) fn document_scroll_wheel(
         &mut self,
         event: &ScrollWheelEvent,
-        _: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         // Cmd + wheel is the conventional zoom gesture on a mouse.
         if event.modifiers.platform {
+            // The scroll container consumes the same wheel event before this
+            // handler runs, so the pan it applied is undone first. Otherwise the
+            // anchor is computed against an offset that already moved.
+            self.undo_scroll(event, window);
             let delta = event.delta.pixel_delta(px(1.0)).y;
             let factor = 1.0 + f32::from(delta) * 0.01;
-            self.set_zoom(self.zoom * factor.clamp(0.5, 1.5), cx);
+            self.set_zoom_anchored(self.zoom * factor.clamp(0.5, 1.5), Some(event.position), cx);
             return;
         }
         self.sync_current_page_from_scroll();
@@ -523,62 +582,21 @@ impl EditorView {
         cx.notify();
     }
 
+    /// Reverses the pan the scroll container applied for `event`.
+    fn undo_scroll(&mut self, event: &ScrollWheelEvent, window: &mut Window) {
+        let delta = event.delta.pixel_delta(window.line_height());
+        let offset = self.scroll.offset();
+        self.scroll.set_offset(offset - delta);
+    }
+
     pub(super) fn document_pinch(
         &mut self,
         event: &PinchEvent,
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let old_zoom = self.zoom;
-        let new_zoom = pinch_zoom(old_zoom, event.delta);
-        if (new_zoom - old_zoom).abs() < f32::EPSILON {
-            return;
-        }
-
-        let page_index = self
-            .pages
-            .iter()
-            .position(|page| page.bounds.get().contains(&event.position))
-            .unwrap_or(self.page_index);
-        let Some(page) = self.pages.get(page_index) else {
-            return;
-        };
-        let ratio = new_zoom / old_zoom;
-        let viewport = self.scroll.bounds();
-        let metrics = DocumentMetrics {
-            page_count: self.pages.len(),
-            max_page_width: self
-                .pages
-                .iter()
-                .map(|page| page.image_size.0)
-                .fold(0.0, f32::max),
-            total_page_height: self.pages.iter().map(|page| page.image_size.1).sum(),
-            prior_page_height: self.pages[..page_index]
-                .iter()
-                .map(|page| page.image_size.1)
-                .sum(),
-            page_size: page.image_size,
-        };
-        let (x, y) = anchored_document_offset(
-            metrics,
-            AnchorContext {
-                page_index,
-                zoom: new_zoom,
-                ratio,
-                viewport_origin: (f32::from(viewport.origin.x), f32::from(viewport.origin.y)),
-                viewport_size: (
-                    f32::from(viewport.size.width),
-                    f32::from(viewport.size.height),
-                ),
-                pointer: (f32::from(event.position.x), f32::from(event.position.y)),
-                page_origin: (
-                    f32::from(page.bounds.get().origin.x),
-                    f32::from(page.bounds.get().origin.y),
-                ),
-            },
-        );
-        self.scroll.set_offset(point(px(x), px(y)));
-        self.set_zoom(new_zoom, cx);
+        let new_zoom = pinch_zoom(self.zoom, event.delta);
+        self.set_zoom_anchored(new_zoom, Some(event.position), cx);
     }
 
     pub(super) fn page_mouse_down(
