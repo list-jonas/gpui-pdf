@@ -64,7 +64,6 @@ impl EditorView {
         let _ = self.requests.try_send(EditorRequest::SaveAs {
             source: source.clone(),
             destination: source,
-            page_index: self.page_index,
             edits,
         });
         let _ = window;
@@ -94,7 +93,6 @@ impl EditorView {
                     let _ = view.requests.try_send(EditorRequest::SaveAs {
                         source,
                         destination,
-                        page_index: view.page_index,
                         edits,
                     });
                     cx.notify();

@@ -678,6 +678,9 @@ impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Rendering is the one place every page change funnels through.
         self.sync_page_input(window, cx);
+        // Page bounds only exist after the first layout pass, so this is the
+        // earliest point the real visible range can be trusted.
+        self.settle_visible_pages();
         div()
             .key_context("PdfEditor")
             .track_focus(&self.focus_handle)

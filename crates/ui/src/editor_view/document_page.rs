@@ -83,4 +83,15 @@ impl DocumentPage {
         self.requested_scale = 0.0;
         self.preview = true;
     }
+
+    /// Marks the current raster and text as out of date after the underlying
+    /// document changed. The existing image stays on screen until its
+    /// replacement arrives, so saving never flashes an empty page.
+    pub fn invalidate(&mut self) {
+        self.render_scale = 0.0;
+        self.requested_scale = 0.0;
+        self.preview = true;
+        self.text_loaded = false;
+        self.text_requested = false;
+    }
 }

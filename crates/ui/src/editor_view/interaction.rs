@@ -461,6 +461,24 @@ impl EditorView {
         self.dispatch(jobs, true);
     }
 
+    /// Re-checks the viewport after layout has run. On open the scroll handle
+    /// has no child bounds yet, so the first pass can only guess at what is
+    /// visible; once the pages are laid out the real range is known and any
+    /// page that is actually on screen gets its full-resolution raster.
+    pub(super) fn settle_visible_pages(&mut self) {
+        if self.pages.is_empty() || self.scroll.children_count() == 0 {
+            return;
+        }
+        let viewport = self.viewport();
+        if self.settled_viewport == Some((viewport.first_visible, viewport.last_visible)) {
+            return;
+        }
+        self.settled_viewport = Some((viewport.first_visible, viewport.last_visible));
+        let states = self.page_states();
+        let jobs = schedule::plan(viewport, &states);
+        self.dispatch(jobs, false);
+    }
+
     /// Fills in pages outside the viewport once the visible ones are done.
     pub(super) fn request_remaining_pages(&mut self) {
         if self.background_requested {
@@ -474,6 +492,17 @@ impl EditorView {
         }
         self.background_requested = true;
         self.dispatch(jobs, false);
+    }
+
+    /// Marks every page stale after the document behind it changed, then
+    /// redraws what the reader is currently looking at. Scroll position, zoom
+    /// and selection are deliberately left alone.
+    pub(super) fn invalidate_rasters(&mut self) {
+        for page in &mut self.pages {
+            page.invalidate();
+        }
+        self.background_requested = false;
+        self.request_visible_pages();
     }
 
     /// Frees rasters far from the viewport so a long document does not grow
@@ -513,6 +542,15 @@ impl EditorView {
     fn dispatch(&mut self, jobs: Vec<crate::PageRequest>, replace: bool) {
         if jobs.is_empty() {
             return;
+        }
+        if replace {
+            // Queued rasterisation is about to be dropped, so forget what was
+            // asked for and remember only what actually arrived. Without this
+            // a cancelled job leaves the page permanently marked as requested,
+            // and it never reaches full resolution.
+            for page in &mut self.pages {
+                page.requested_scale = page.render_scale;
+            }
         }
         for job in &jobs {
             let Some(page) = self.pages.get_mut(job.page_index) else {
@@ -1126,12 +1164,17 @@ impl EditorView {
         } else {
             join_selection(&runs).into()
         };
+        self.selected_preview = preview_of(&self.selected_text);
+        self.selection_overlays =
+            super::selection_paint::SelectionOverlays::build(&runs, self.pages.len());
         self.selection = runs;
     }
 
     pub(super) fn clear_selection(&mut self) {
         self.selection.clear();
+        self.selection_overlays.clear();
         self.selected_text = "No text selected".into();
+        self.selected_preview = self.selected_text.clone();
         self.selected_edit = None;
     }
 
@@ -1171,7 +1214,9 @@ impl EditorView {
     /// Marks a placed annotation as the target of keyboard actions.
     pub(super) fn select_edit(&mut self, edit_index: usize, cx: &mut Context<Self>) {
         self.selection.clear();
+        self.selection_overlays.clear();
         self.selected_text = "No text selected".into();
+        self.selected_preview = self.selected_text.clone();
         self.selected_edit = Some(edit_index);
         cx.notify();
     }
@@ -1537,6 +1582,19 @@ fn join_selection(selection: &[SelectedRun]) -> String {
         previous = Some(run);
     }
     text
+}
+
+/// Shortens selected text for the properties panel. Shaping a whole document's
+/// text every frame is far more expensive than the selection itself, and no
+/// one reads a quarter of a million characters in a side panel. Copying still
+/// uses the full text.
+fn preview_of(text: &str) -> gpui::SharedString {
+    const MAX_PREVIEW_CHARS: usize = 2_000;
+    let mut preview: String = text.chars().take(MAX_PREVIEW_CHARS).collect();
+    if text.chars().nth(MAX_PREVIEW_CHARS).is_some() {
+        preview.push('…');
+    }
+    preview.into()
 }
 
 /// Pages away from the visible range, used for eviction order.

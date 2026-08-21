@@ -91,6 +91,67 @@ pub fn multi_page_pdf() -> Vec<u8> {
     build_pdf(&objects)
 }
 
+/// Pages in the large stress fixture. Big enough that eager whole-document
+/// work is obvious, small enough to build in well under a second.
+pub const STRESS_PAGE_COUNT: usize = 250;
+
+/// A large, text-heavy document for exercising load, scroll and select-all
+/// performance. Generated rather than checked in, so the repository carries no
+/// third-party PDF and the content is ours to redistribute.
+pub fn stress_pdf(page_count: usize) -> Vec<u8> {
+    let font_id = 3 + page_count * 2;
+    let page_ids: Vec<_> = (0..page_count).map(|index| 3 + index * 2).collect();
+    let kids = page_ids
+        .iter()
+        .map(|page_id| format!("{page_id} 0 R"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut objects = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        format!("<< /Type /Pages /Kids [{kids}] /Count {page_count} >>").into_bytes(),
+    ];
+
+    for (index, page_id) in page_ids.iter().enumerate() {
+        let content_id = page_id + 1;
+        objects.push(
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] \
+                 /Resources << /Font << /F1 {font_id} 0 R >> >> /Contents {content_id} 0 R >>"
+            )
+            .into_bytes(),
+        );
+        objects.push(stream("", &stress_page_content(index)));
+    }
+
+    objects.push(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec());
+    build_pdf(&objects)
+}
+
+/// A full page of prose, so text extraction and selection see realistic
+/// volumes of individual runs.
+fn stress_page_content(page_index: usize) -> Vec<u8> {
+    const LINES_PER_PAGE: usize = 46;
+    use std::fmt::Write as _;
+    let mut content = format!(
+        "BT /F1 20 Tf 72 720 Td (Stress page {}) Tj ET\n",
+        page_index + 1
+    );
+    for line in 0..LINES_PER_PAGE {
+        let y = 690 - line * 14;
+        if y < 72 {
+            break;
+        }
+        let _ = writeln!(
+            content,
+            "BT /F1 11 Tf 72 {y} Td (Page {} line {}: the quick brown fox jumps over the lazy dog \
+             while typesetting engines measure every glyph advance.) Tj ET",
+            page_index + 1,
+            line + 1
+        );
+    }
+    content.into_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,5 +178,18 @@ mod tests {
                     .any(|window| window == format!("Fixture page {page_number}").as_bytes())
             );
         }
+    }
+
+    #[test]
+    fn stress_fixture_is_large_and_well_formed() {
+        let pdf = stress_pdf(STRESS_PAGE_COUNT);
+
+        assert!(pdf.starts_with(b"%PDF"));
+        assert!(pdf.ends_with(b"%%EOF\n"));
+        let marker = format!("/Count {STRESS_PAGE_COUNT}");
+        assert!(
+            pdf.windows(marker.len())
+                .any(|window| window == marker.as_bytes())
+        );
     }
 }

@@ -11,6 +11,7 @@ mod page_canvas;
 mod properties;
 mod schedule;
 mod search;
+mod selection_paint;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -33,6 +34,7 @@ use self::history::EditHistory;
 use self::model::{
     DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, SelectedRun, Tool,
 };
+use self::selection_paint::SelectionOverlays;
 
 /// How a transient message is presented in the status bar.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -60,6 +62,9 @@ pub struct EditorView {
     /// Set once the viewport is satisfied and the rest of the document is
     /// being filled in behind the scenes.
     background_requested: bool,
+    /// Visible page range the scheduler last acted on, so a settled layout is
+    /// only re-checked when it actually changed.
+    settled_viewport: Option<(usize, usize)>,
     focus_handle: FocusHandle,
     scroll: ScrollHandle,
     forms: Vec<FieldInput>,
@@ -68,7 +73,11 @@ pub struct EditorView {
     zoom: f32,
     drag: Option<DragState>,
     selection: Vec<SelectedRun>,
+    /// Merged, per-page selection geometry used for painting.
+    selection_overlays: SelectionOverlays,
     selected_text: SharedString,
+    /// Truncated copy of the selection shown in the properties panel.
+    selected_preview: SharedString,
     /// Index into the edit history of the annotation the user clicked, so it
     /// can be deleted with the keyboard.
     selected_edit: Option<usize>,
@@ -159,6 +168,7 @@ impl EditorView {
             loaded_pages: 0,
             token: 0,
             background_requested: false,
+            settled_viewport: None,
             focus_handle,
             scroll: ScrollHandle::new(),
             forms: Vec::new(),
@@ -167,7 +177,9 @@ impl EditorView {
             zoom: 1.0,
             drag: None,
             selection: Vec::new(),
+            selection_overlays: SelectionOverlays::default(),
             selected_text: "No text selected".into(),
+            selected_preview: "No text selected".into(),
             selected_edit: None,
             inline_text: None,
             inline_note: None,
@@ -240,10 +252,17 @@ impl EditorView {
                 self.busy = false;
                 self.request_remaining_pages();
             }
-            EditorUpdate::Saved(path) => {
+            EditorUpdate::Saved { token, path } => {
                 self.history.clear();
                 self.busy = false;
                 window.set_window_edited(false);
+                self.path = Some(path.clone());
+                window.set_window_title(&file_name(&path));
+                // The saved bytes are now the render source, so existing rasters
+                // are stale: drop them and redraw from the current viewport
+                // without disturbing scroll position, zoom or selection.
+                self.token = token;
+                self.invalidate_rasters();
                 self.flash(format!("Saved {}", file_name(&path)), Severity::Info, cx);
             }
             EditorUpdate::Failed(message) => {
@@ -272,6 +291,7 @@ impl EditorView {
         } = opened;
         self.token = token;
         self.background_requested = false;
+        self.settled_viewport = None;
         self.path = Some(path.clone());
         self.page_index = initial_page;
         self.page_count = document.page_count;

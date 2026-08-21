@@ -36,12 +36,11 @@ pub fn start(requests: Receiver<EditorRequest>, updates: Sender<EditorUpdate>) {
                 EditorRequest::SaveAs {
                     source,
                     destination,
-                    page_index,
                     edits,
                 } => {
                     token += 1;
-                    save(&source, &destination, page_index, token, edits, &updates).map(|session| {
-                        open = session.or(open.take());
+                    save(&source, &destination, token, edits, &updates).map(|session| {
+                        open = Some(session);
                     })
                 }
             };
@@ -185,14 +184,16 @@ fn load_page_metadata(
         .collect()
 }
 
+/// Writes the edited document and re-points the render pool at the saved
+/// bytes, so annotations become part of the page rasters. The document is not
+/// reopened, so the reader keeps their position, zoom and selection.
 fn save(
     source: &Path,
     destination: &Path,
-    page_index: usize,
     token: u64,
     edits: Vec<pdf_engine::EditCommand>,
     updates: &Sender<EditorUpdate>,
-) -> Result<Option<OpenDocumentSession>, String> {
+) -> Result<OpenDocumentSession, String> {
     let bytes = std::fs::read(source).map_err(|error| format!("{}: {error}", source.display()))?;
     let worker = DocumentWorker::spawn(Arc::new(ZpdfEngine), OpenRequest::new(bytes));
     expect_opened(receive(&worker)?)?;
@@ -205,10 +206,24 @@ fn save(
         .map_err(|_| "document worker panicked during shutdown".to_owned())?;
     persistence::write_pdf_atomically(destination, &output)
         .map_err(|error| format!("{}: {error}", destination.display()))?;
+
+    let saved: Arc<[u8]> = Arc::from(output);
+    let engine: Arc<dyn PdfEngine> = Arc::new(ZpdfEngine);
+    let worker = DocumentWorker::spawn(Arc::clone(&engine), OpenRequest::new(Arc::clone(&saved)));
+    let metadata = expect_opened(receive(&worker)?)?;
+    let pages = load_page_metadata(&worker, metadata.page_count)?;
+    worker
+        .shutdown()
+        .map_err(|_| "document worker panicked during shutdown".to_owned())?;
+    let pool = spawn_pool(&engine, &saved, metadata.page_count, token, updates.clone());
+
     updates
-        .send_blocking(EditorUpdate::Saved(destination.to_path_buf()))
+        .send_blocking(EditorUpdate::Saved {
+            token,
+            path: destination.to_path_buf(),
+        })
         .map_err(|error| error.to_string())?;
-    load(destination, page_index, token, updates).map(Some)
+    Ok(OpenDocumentSession { pool, pages })
 }
 
 fn receive(worker: &DocumentWorker) -> Result<DocumentEvent, String> {
@@ -350,15 +365,37 @@ mod tests {
             name: "customer.name".to_owned(),
             value: "Ada".to_owned(),
         }];
-        save(&path, &path, 0, 2, edits, &sender).unwrap();
+        let session = save(&path, &path, 2, edits, &sender).unwrap();
 
         assert!(
-            receiver
-                .recv_blocking()
-                .is_ok_and(|update| matches!(update, EditorUpdate::Saved(_)))
+            receiver.recv_blocking().is_ok_and(
+                |update| matches!(update, EditorUpdate::Saved { token, .. } if token == 2)
+            )
         );
         let reopened = ZpdfEngine.open(OpenRequest::new(std::fs::read(&path).unwrap()));
         assert!(reopened.is_ok());
+        drop(session);
+    }
+
+    #[test]
+    fn saving_does_not_reopen_the_document() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sample.pdf");
+        std::fs::write(&path, test_support::form_pdf()).unwrap();
+        let (sender, receiver) = async_channel::unbounded();
+
+        let session = save(&path, &path, 3, Vec::new(), &sender).unwrap();
+
+        // Only a save confirmation: an `Opened` update here would reset the
+        // reader's scroll position, zoom and selection.
+        let update = receiver.recv_blocking().unwrap();
+        assert!(matches!(update, EditorUpdate::Saved { .. }));
+        assert!(
+            !matches!(update, EditorUpdate::Opened(_)),
+            "saving must not reopen the document"
+        );
+        assert!(receiver.is_empty());
+        drop(session);
     }
 
     #[test]

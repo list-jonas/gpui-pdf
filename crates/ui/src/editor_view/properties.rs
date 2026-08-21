@@ -133,7 +133,7 @@ impl EditorView {
                             .rounded_md()
                             .bg(tint(WELL_TINT))
                             .text_sm()
-                            .child(self.selected_text.clone()),
+                            .child(self.selected_preview.clone()),
                     ),
             ),
             Tool::Edit => panel.child(

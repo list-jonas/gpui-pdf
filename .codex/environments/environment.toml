@@ -8,7 +8,7 @@ script = "cd ."
 [[actions]]
 name = "Run"
 icon = "run"
-command = "open \"dist/GPUI PDF.app\" --args \"REDACTED-personal-path.pdf\""
+command = "open \"dist/GPUI PDF.app\" --args \"$PWD/tests/fixtures/stress.pdf\""
 
 [[actions]]
 name = "Build"
@@ -20,4 +20,4 @@ name = "Build & Run"
 icon = "debug"
 command = '''
 ./scripts/package-macos.sh
-open "dist/GPUI PDF.app" --args "REDACTED-personal-path.pdf"'''
+open "dist/GPUI PDF.app" --args "$PWD/tests/fixtures/stress.pdf"'''

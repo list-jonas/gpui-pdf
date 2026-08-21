@@ -198,15 +198,11 @@ impl EditorView {
 
     fn add_selection_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
         let geometry = self.pages[page_index].metadata.geometry;
-        // Selection can span pages, so each page paints its own runs.
-        for run in self
-            .selection
-            .iter()
-            .filter(|run| run.page_index == page_index)
-        {
-            page = page.child(
-                positioned(overlay_rect(run.rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)),
-            );
+        // Runs were merged per line and grouped by page when the selection was
+        // made, so painting touches only this page's rectangles.
+        for rect in self.selection_overlays.for_page(page_index) {
+            page = page
+                .child(positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)));
         }
         if let Some(DragState::Region {
             page_index: drag_page,

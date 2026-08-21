@@ -36,7 +36,6 @@ pub enum EditorRequest {
     SaveAs {
         source: PathBuf,
         destination: PathBuf,
-        page_index: usize,
         edits: Vec<EditCommand>,
     },
 }
@@ -61,7 +60,11 @@ pub enum EditorUpdate {
     Idle {
         token: u64,
     },
-    Saved(PathBuf),
+    Saved {
+        /// Identifies the re-pointed render pool serving the saved bytes.
+        token: u64,
+        path: PathBuf,
+    },
     Failed(String),
 }
 

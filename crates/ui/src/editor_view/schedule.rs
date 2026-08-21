@@ -193,4 +193,22 @@ mod tests {
 
         assert!(plan(viewport(0, 2), &pages).is_empty());
     }
+
+    /// A page whose sharp render was cancelled still carries the requested
+    /// scale. Once that is reset to what actually arrived, the scheduler must
+    /// ask again, otherwise the page stays stuck at preview resolution.
+    #[test]
+    fn a_page_left_at_preview_resolution_is_asked_for_again() {
+        let mut pages = empty_pages(1);
+        pages[0].render_scale = PREVIEW_SCALE;
+        pages[0].requested_scale = PREVIEW_SCALE;
+        pages[0].text_loaded = true;
+
+        let jobs = plan(viewport(0, 0), &pages);
+
+        assert!(
+            jobs.iter()
+                .any(|job| job.kind == PageKind::Sharp && job.scale > PREVIEW_SCALE)
+        );
+    }
 }
