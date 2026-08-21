@@ -246,20 +246,6 @@ impl EditorView {
         self.cancel_innermost(window, cx);
     }
 
-    /// Escape reaches the editor even while a text field has focus, because
-    /// inputs bind Escape themselves and would otherwise swallow it.
-    pub(super) fn capture_escape(
-        &mut self,
-        event: &gpui::KeyDownEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
-            self.cancel_innermost(window, cx);
-            cx.stop_propagation();
-        }
-    }
-
     fn cancel_innermost(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // Text fields swallow Escape, so a field with focus is handled first:
         // Escape returns focus to the page rather than doing nothing.
@@ -1376,7 +1362,7 @@ impl EditorView {
 }
 
 #[derive(Clone, Copy)]
-enum Markup {
+pub(super) enum Markup {
     Highlight,
     Underline,
     Strikeout,

@@ -163,6 +163,9 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-c", CopySelection, CANVAS),
         KeyBinding::new("cmd-a", SelectAllText, CANVAS),
         KeyBinding::new("escape", Cancel, EDITOR),
+        // Text inputs bind Escape themselves at a deeper context, so an
+        // input-scoped binding is needed for Escape to leave the field.
+        KeyBinding::new("escape", Cancel, Some("PdfEditor && Input")),
         KeyBinding::new("backspace", DeleteSelection, CANVAS),
         KeyBinding::new("delete", DeleteSelection, CANVAS),
         KeyBinding::new("cmd-f", Search, EDITOR),
@@ -213,7 +216,8 @@ fn file_url_to_path(value: &str) -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use gpui::{KeyContext, Keymap, Keystroke};
+    use gpui::{KeyBinding, KeyContext, Keymap, Keystroke};
+    use ui::Cancel;
 
     use super::key_bindings;
 
@@ -291,8 +295,34 @@ mod tests {
     fn escape_still_resolves_inside_text_inputs() {
         let resolved = resolves("escape", &["Root", "PdfEditor", "Input"]);
         assert!(
-            resolved.iter().any(|name| name.ends_with("Cancel")),
+            resolved
+                .first()
+                .is_some_and(|name| name.ends_with("Cancel")),
             "escape did not reach the editor: {resolved:?}"
+        );
+    }
+
+    /// The input widget binds Escape at the same depth. Ours is registered
+    /// afterwards and must take precedence, otherwise Escape does nothing
+    /// visible while a field has focus.
+    #[test]
+    fn editor_escape_wins_over_the_input_widgets_own_binding() {
+        let mut bindings = vec![KeyBinding::new("escape", Cancel, Some("Input"))];
+        bindings.extend(key_bindings());
+        let keymap = Keymap::new(bindings);
+        let stack: Vec<KeyContext> = ["Root", "PdfEditor", "Input"]
+            .iter()
+            .map(|context| KeyContext::parse(context).unwrap())
+            .collect();
+
+        let (resolved, _) =
+            keymap.bindings_for_input(&[Keystroke::parse("escape").unwrap()], &stack);
+
+        assert!(
+            resolved
+                .first()
+                .is_some_and(|binding| binding.action().name().ends_with("Cancel")),
+            "editor Escape lost to the input binding"
         );
     }
 }

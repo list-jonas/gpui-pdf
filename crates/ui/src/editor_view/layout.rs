@@ -736,7 +736,6 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::fit_page))
             .on_action(cx.listener(Self::fit_width))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::window_mouse_up))
-            .capture_key_down(cx.listener(Self::capture_escape))
             .flex()
             .flex_col()
             .size_full()
