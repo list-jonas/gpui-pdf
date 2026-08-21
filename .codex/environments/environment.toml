@@ -8,16 +8,16 @@ script = "cd ."
 [[actions]]
 name = "Run"
 icon = "run"
-command = "./target/release/gpui-pdf 'REDACTED-personal-path.pdf'"
+command = "open \"dist/GPUI PDF.app\" --args \"REDACTED-personal-path.pdf\""
 
 [[actions]]
 name = "Build"
 icon = "tool"
-command = "cargo build -p gpui-pdf --release --locked"
+command = "./scripts/package-macos.sh"
 
 [[actions]]
 name = "Build & Run"
 icon = "debug"
 command = '''
-cargo build -p gpui-pdf --release --locked
-./target/release/gpui-pdf 'REDACTED-personal-path.pdf''''
+./scripts/package-macos.sh
+open "dist/GPUI PDF.app" --args "REDACTED-personal-path.pdf"'''
