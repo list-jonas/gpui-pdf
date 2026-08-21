@@ -16,7 +16,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use async_channel::{Receiver, Sender};
-use document_core::PdfRect;
 use gpui::{
     AppContext, Context, Entity, FocusHandle, ScrollHandle, SharedString, Subscription, Task,
     Window,
@@ -31,7 +30,9 @@ use crate::{EditorRequest, EditorUpdate};
 use self::document_io::file_name;
 use self::document_page::DocumentPage;
 use self::history::EditHistory;
-use self::model::{DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, Tool};
+use self::model::{
+    DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, SelectedRun, Tool,
+};
 
 /// How a transient message is presented in the status bar.
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -66,8 +67,11 @@ pub struct EditorView {
     tool: Tool,
     zoom: f32,
     drag: Option<DragState>,
-    selected_rects: Vec<PdfRect>,
+    selection: Vec<SelectedRun>,
     selected_text: SharedString,
+    /// Index into the edit history of the annotation the user clicked, so it
+    /// can be deleted with the keyboard.
+    selected_edit: Option<usize>,
     inline_text: Option<InlineText>,
     inline_note: Option<InlineNote>,
     highlight_color: (f64, f64, f64),
@@ -162,8 +166,9 @@ impl EditorView {
             tool: Tool::Select,
             zoom: 1.0,
             drag: None,
-            selected_rects: Vec::new(),
+            selection: Vec::new(),
             selected_text: "No text selected".into(),
+            selected_edit: None,
             inline_text: None,
             inline_note: None,
             highlight_color: (1.0, 0.86, 0.2),
@@ -279,8 +284,7 @@ impl EditorView {
         self.detail = None;
         self.extracted_text = None;
         self.drag = None;
-        self.selected_rects.clear();
-        self.selected_text = "No text selected".into();
+        self.clear_selection();
         self.inline_text = None;
         self.inline_note = None;
         self.search_query.clear();

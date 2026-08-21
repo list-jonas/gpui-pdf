@@ -61,6 +61,9 @@ pub enum DragState {
         page_index: usize,
         start: PdfPoint,
         current: PdfPoint,
+        /// Page the pointer is currently over, which may differ from the page
+        /// the drag started on when selecting across a page break.
+        current_page: usize,
     },
     Pan {
         start: Point<Pixels>,
@@ -116,6 +119,15 @@ pub const fn shape_label(kind: ShapeKind) -> &'static str {
 pub struct SearchMatch {
     pub page_index: usize,
     pub rect: PdfRect,
+}
+
+/// One highlighted run of selected text, tied to the page it lives on so a
+/// selection can span several pages.
+#[derive(Clone)]
+pub struct SelectedRun {
+    pub page_index: usize,
+    pub rect: PdfRect,
+    pub text: String,
 }
 
 #[derive(Clone, Copy)]

@@ -7,11 +7,12 @@ mod protocol;
 mod theme;
 
 pub use actions::{
-    ActualSize, AddTextTool, Cancel, CopySelection, EditTool, FirstPage, FitPage, FitWidth,
-    GoToPage, HandTool, HighlightTool, LastPage, NextPage, NextSearchResult, NoteTool,
+    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, EditTool, FirstPage, FitPage,
+    FitWidth, GoToPage, HandTool, HighlightTool, LastPage, NextPage, NextSearchResult, NoteTool,
     OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, Redo, SaveDocument,
-    SaveDocumentAs, Search, SelectAllText, SelectTool, ShapeTool, SignatureTool, StrikeoutTool,
-    UnderlineTool, Undo, ZoomIn, ZoomOut,
+    SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop,
+    ScrollUp, Search, SelectAllText, SelectTool, ShapeTool, SignatureTool, StrikeoutTool,
+    TogglePropertiesPanel, ToggleSidebar, UnderlineTool, Undo, ZoomIn, ZoomOut,
 };
 pub use editor_view::EditorView;
 pub use icons::Assets;

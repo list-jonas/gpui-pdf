@@ -6,11 +6,13 @@ use gpui::{
 };
 use gpui_component::Root;
 use ui::{
-    ActualSize, AddTextTool, Cancel, CopySelection, EditTool, EditorRequest, EditorView, FirstPage,
-    FitPage, FitWidth, GoToPage, HandTool, HighlightTool, LastPage, NextPage, NextSearchResult,
-    NoteTool, OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, Redo, SaveDocument,
-    SaveDocumentAs, Search, SelectAllText, SelectTool, ShapeTool, SignatureTool, StrikeoutTool,
-    UnderlineTool, Undo, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, EditTool, EditorRequest,
+    EditorView, FirstPage, FitPage, FitWidth, GoToPage, HandTool, HighlightTool, LastPage,
+    NextPage, NextSearchResult, NoteTool, OpenDocument, PreviousPage, PreviousSearchResult,
+    RedactTool, Redo, SaveDocument, SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp,
+    ScrollToBottom, ScrollToTop, ScrollUp, Search, SelectAllText, SelectTool, ShapeTool,
+    SignatureTool, StrikeoutTool, TogglePropertiesPanel, ToggleSidebar, UnderlineTool, Undo,
+    ZoomIn, ZoomOut,
 };
 
 use crate::session;
@@ -94,6 +96,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Copy", CopySelection),
                 MenuItem::action("Select All Text", SelectAllText),
+                MenuItem::action("Delete Selection", DeleteSelection),
                 MenuItem::separator(),
                 MenuItem::action("Find…", Search),
                 MenuItem::action("Find Next", NextSearchResult),
@@ -109,6 +112,9 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Actual Size", ActualSize),
                 MenuItem::action("Fit Page", FitPage),
                 MenuItem::action("Fit Width", FitWidth),
+                MenuItem::separator(),
+                MenuItem::action("Toggle Page Thumbnails", ToggleSidebar),
+                MenuItem::action("Toggle Properties Panel", TogglePropertiesPanel),
             ],
         },
         Menu {
@@ -157,15 +163,26 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-c", CopySelection, CANVAS),
         KeyBinding::new("cmd-a", SelectAllText, CANVAS),
         KeyBinding::new("escape", Cancel, EDITOR),
+        KeyBinding::new("backspace", DeleteSelection, CANVAS),
+        KeyBinding::new("delete", DeleteSelection, CANVAS),
         KeyBinding::new("cmd-f", Search, EDITOR),
         KeyBinding::new("cmd-g", NextSearchResult, EDITOR),
         KeyBinding::new("cmd-shift-g", PreviousSearchResult, EDITOR),
+        // Arrows scroll like any document reader; Cmd jumps whole pages.
+        KeyBinding::new("up", ScrollUp, CANVAS),
+        KeyBinding::new("down", ScrollDown, CANVAS),
+        KeyBinding::new("pageup", ScrollPageUp, CANVAS),
+        KeyBinding::new("pagedown", ScrollPageDown, CANVAS),
+        KeyBinding::new("space", ScrollPageDown, CANVAS),
+        KeyBinding::new("shift-space", ScrollPageUp, CANVAS),
+        KeyBinding::new("home", ScrollToTop, CANVAS),
+        KeyBinding::new("end", ScrollToBottom, CANVAS),
         KeyBinding::new("left", PreviousPage, CANVAS),
         KeyBinding::new("right", NextPage, CANVAS),
-        KeyBinding::new("pageup", PreviousPage, CANVAS),
-        KeyBinding::new("pagedown", NextPage, CANVAS),
-        KeyBinding::new("home", FirstPage, CANVAS),
-        KeyBinding::new("end", LastPage, CANVAS),
+        KeyBinding::new("cmd-left", PreviousPage, CANVAS),
+        KeyBinding::new("cmd-right", NextPage, CANVAS),
+        KeyBinding::new("cmd-up", FirstPage, CANVAS),
+        KeyBinding::new("cmd-down", LastPage, CANVAS),
         KeyBinding::new("cmd-j", GoToPage, EDITOR),
         KeyBinding::new("cmd-=", ZoomIn, EDITOR),
         KeyBinding::new("cmd-+", ZoomIn, EDITOR),
@@ -173,6 +190,8 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-0", ActualSize, EDITOR),
         KeyBinding::new("cmd-1", FitPage, EDITOR),
         KeyBinding::new("cmd-2", FitWidth, EDITOR),
+        KeyBinding::new("cmd-ctrl-s", ToggleSidebar, EDITOR),
+        KeyBinding::new("cmd-alt-0", TogglePropertiesPanel, EDITOR),
         KeyBinding::new("v", SelectTool, CANVAS),
         KeyBinding::new("e", EditTool, CANVAS),
         KeyBinding::new("h", HandTool, CANVAS),
@@ -220,6 +239,15 @@ mod tests {
             ("cmd-o", "OpenDocument"),
             ("cmd-2", "FitWidth"),
             ("v", "SelectTool"),
+            ("backspace", "DeleteSelection"),
+            ("delete", "DeleteSelection"),
+            ("cmd-a", "SelectAllText"),
+            ("down", "ScrollDown"),
+            ("space", "ScrollPageDown"),
+            ("home", "ScrollToTop"),
+            ("cmd-up", "FirstPage"),
+            ("left", "PreviousPage"),
+            ("escape", "Cancel"),
         ] {
             let resolved = resolves(keystroke, &["Root", "PdfEditor"]);
             assert!(
@@ -235,6 +263,36 @@ mod tests {
         assert!(
             resolved.is_empty(),
             "tool shortcut leaked into input: {resolved:?}"
+        );
+    }
+
+    /// Typing in a field must never delete an annotation or scroll the page.
+    #[test]
+    fn editing_keys_are_inert_inside_text_inputs() {
+        for keystroke in [
+            "backspace",
+            "delete",
+            "space",
+            "down",
+            "home",
+            "cmd-a",
+            "left",
+        ] {
+            let resolved = resolves(keystroke, &["Root", "PdfEditor", "Input"]);
+            assert!(
+                resolved.is_empty(),
+                "{keystroke} leaked into input: {resolved:?}"
+            );
+        }
+    }
+
+    /// Escape must stay reachable so it can return focus to the page.
+    #[test]
+    fn escape_still_resolves_inside_text_inputs() {
+        let resolved = resolves("escape", &["Root", "PdfEditor", "Input"]);
+        assert!(
+            resolved.iter().any(|name| name.ends_with("Cancel")),
+            "escape did not reach the editor: {resolved:?}"
         );
     }
 }

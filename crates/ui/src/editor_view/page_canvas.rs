@@ -185,12 +185,15 @@ impl EditorView {
 
     fn add_selection_overlays(&self, mut page: gpui::Div, page_index: usize) -> gpui::Div {
         let geometry = self.pages[page_index].metadata.geometry;
-        if page_index == self.page_index {
-            for rect in &self.selected_rects {
-                page = page.child(
-                    positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)),
-                );
-            }
+        // Selection can span pages, so each page paints its own runs.
+        for run in self
+            .selection
+            .iter()
+            .filter(|run| run.page_index == page_index)
+        {
+            page = page.child(
+                positioned(overlay_rect(run.rect, geometry, self.zoom)).bg(rgba(0x3b82_f655)),
+            );
         }
         if let Some(DragState::Region {
             page_index: drag_page,
@@ -259,7 +262,20 @@ impl EditorView {
                     rect,
                 } if *target == page_index => {
                     page = page.child(
-                        positioned(overlay_rect(*rect, geometry, self.zoom)).bg(rgba(0x1118_27cc)),
+                        positioned(overlay_rect(*rect, geometry, self.zoom))
+                            .id(("redact-edit", edit_index))
+                            .bg(rgba(0x1118_27cc))
+                            .cursor_pointer()
+                            .when(self.selected_edit == Some(edit_index), |redaction| {
+                                redaction.border_2().border_color(rgb(0x003b_82f6))
+                            })
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |view, _, _, cx| {
+                                    view.select_edit(edit_index, cx);
+                                    cx.stop_propagation();
+                                }),
+                            ),
                     );
                 }
                 EditCommand::Underline {
@@ -342,8 +358,20 @@ impl EditorView {
                     ..
                 } if *target == page_index => {
                     let element = positioned(overlay_rect(*rect, geometry, self.zoom))
+                        .id(("shape-edit", edit_index))
                         .border_2()
-                        .border_color(rgb(color_to_u32(*color)));
+                        .border_color(rgb(color_to_u32(*color)))
+                        .cursor_pointer()
+                        .when(self.selected_edit == Some(edit_index), |shape| {
+                            shape.bg(rgba(0x3b82_f622))
+                        })
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |view, _, _, cx| {
+                                view.select_edit(edit_index, cx);
+                                cx.stop_propagation();
+                            }),
+                        );
                     page = page.child(match kind {
                         ShapeKind::Rectangle => element,
                         ShapeKind::Ellipse => element.rounded_full(),

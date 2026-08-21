@@ -5,17 +5,19 @@ use gpui::{
 use pdf_engine::{EditCommand, TextStamp};
 
 use crate::actions::{
-    ActualSize, AddTextTool, Cancel, CopySelection, EditTool, FitPage, FitWidth, HandTool,
-    HighlightTool, NoteTool, RedactTool, Redo, SelectAllText, SelectTool, ShapeTool, SignatureTool,
-    StrikeoutTool, UnderlineTool, Undo, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, EditTool, FitPage, FitWidth,
+    HandTool, HighlightTool, NoteTool, RedactTool, Redo, ScrollDown, ScrollPageDown, ScrollPageUp,
+    ScrollToBottom, ScrollToTop, ScrollUp, SelectAllText, SelectTool, ShapeTool, SignatureTool,
+    StrikeoutTool, TogglePropertiesPanel, ToggleSidebar, UnderlineTool, Undo, ZoomIn, ZoomOut,
 };
 use crate::editor_view::inline_text_input;
 
 use super::EditorView;
 use super::Severity;
+use super::document_page::DocumentPage;
 use super::geometry::page_point;
 use super::gestures::{AnchorContext, DocumentMetrics, anchored_document_offset, pinch_zoom};
-use super::model::{DragState, InlineNote, InlineText, Tool};
+use super::model::{DragState, InlineNote, InlineText, SelectedRun, Tool};
 use super::schedule::{self, PageState, Viewport};
 
 pub(super) const MIN_ZOOM: f32 = 0.25;
@@ -28,6 +30,8 @@ const ZOOM_STOPS: [f32; 12] = [
 const MIN_REGION: f64 = 4.0;
 /// How far (PDF points) a pointer may sit from a text run and still select it.
 const SELECTION_TOLERANCE: f64 = 24.0;
+/// Pixels moved by a single arrow-key scroll.
+const SCROLL_STEP: f32 = 80.0;
 /// Soft budget for decoded page rasters held in memory (about 512 MiB).
 const MAX_IMAGE_BYTES: u64 = 512 * 1024 * 1024;
 /// Pages within this distance of the viewport are never evicted.
@@ -148,8 +152,7 @@ impl EditorView {
         self.drag = None;
         self.materialize_inline_edits(cx);
         if !matches!(tool, Tool::Select | Tool::Hand) {
-            self.selected_rects.clear();
-            self.selected_text = "No text selected".into();
+            self.clear_selection();
         }
         self.flash(format!("{} tool", tool.label()), Severity::Info, cx);
     }
@@ -240,6 +243,45 @@ impl EditorView {
 
     /// Escape backs out of whatever is currently in progress, innermost first.
     pub(super) fn cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_innermost(window, cx);
+    }
+
+    /// Escape reaches the editor even while a text field has focus, because
+    /// inputs bind Escape themselves and would otherwise swallow it.
+    pub(super) fn capture_escape(
+        &mut self,
+        event: &gpui::KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.keystroke.key == "escape" && !event.keystroke.modifiers.modified() {
+            self.cancel_innermost(window, cx);
+            cx.stop_propagation();
+        }
+    }
+
+    fn cancel_innermost(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Text fields swallow Escape, so a field with focus is handled first:
+        // Escape returns focus to the page rather than doing nothing.
+        if self.search_input.focus_handle(cx).is_focused(window) {
+            self.close_search(window, cx);
+            return;
+        }
+        if self.page_input.focus_handle(cx).is_focused(window) {
+            self.focus_handle.focus(window);
+            self.sync_page_input(window, cx);
+            cx.notify();
+            return;
+        }
+        if self
+            .forms
+            .iter()
+            .any(|field| field.input.focus_handle(cx).is_focused(window))
+        {
+            self.focus_handle.focus(window);
+            cx.notify();
+            return;
+        }
         if self.drag.take().is_some() {
             self.flash("Cancelled", Severity::Info, cx);
             return;
@@ -255,9 +297,8 @@ impl EditorView {
             self.close_search(window, cx);
             return;
         }
-        if !self.selected_rects.is_empty() {
-            self.selected_rects.clear();
-            self.selected_text = "No text selected".into();
+        if self.has_selection() || self.selected_edit.is_some() {
+            self.clear_selection();
             self.flash("Selection cleared", Severity::Info, cx);
             return;
         }
@@ -275,26 +316,36 @@ impl EditorView {
         if self.input_has_focus(window, cx) {
             return;
         }
-        let Some(page) = self.pages.get(self.page_index) else {
-            return;
-        };
-        if page.fragments.is_empty() {
-            self.flash("No selectable text on this page", Severity::Info, cx);
+        // Select every page whose text has been extracted so far. Pages still
+        // loading are reported rather than silently omitted.
+        let runs: Vec<SelectedRun> = self
+            .pages
+            .iter()
+            .enumerate()
+            .flat_map(|(page_index, page)| {
+                page.fragments.iter().map(move |fragment| SelectedRun {
+                    page_index,
+                    rect: fragment.rect,
+                    text: fragment.text.clone(),
+                })
+            })
+            .collect();
+        if runs.is_empty() {
+            self.flash("No selectable text yet", Severity::Info, cx);
             return;
         }
-        self.selected_rects = page
-            .fragments
-            .iter()
-            .map(|fragment| fragment.rect)
-            .collect();
-        let selection: Vec<_> = page
-            .fragments
-            .iter()
-            .map(|fragment| (fragment.rect, fragment.text.clone()))
-            .collect();
-        self.selected_text = join_selection(&selection).into();
+        let pending = self.pages.iter().filter(|page| !page.text_loaded).count();
+        self.set_selection(runs);
+        let note = if pending > 0 {
+            format!("; {pending} page(s) still loading")
+        } else {
+            String::new()
+        };
         self.flash(
-            format!("Selected {} characters", self.selected_text.chars().count()),
+            format!(
+                "Selected {} characters{note}",
+                self.selected_text.chars().count()
+            ),
             Severity::Info,
             cx,
         );
@@ -577,6 +628,7 @@ impl EditorView {
                 page_index,
                 start: point,
                 current: point,
+                current_page: page_index,
             });
         }
         cx.notify();
@@ -781,12 +833,24 @@ impl EditorView {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A text drag may leave the page it started on, so the pointer is
+        // resolved against whichever page it is currently over.
+        let hovered = self.page_at(event.position);
         let pointer = match &self.drag {
+            Some(DragState::Region { page_index, .. }) => hovered
+                .and_then(|page| {
+                    self.pdf_point(page, event.position)
+                        .map(|point| (page, point))
+                })
+                .or_else(|| {
+                    self.pdf_point(*page_index, event.position)
+                        .map(|point| (*page_index, point))
+                }),
             Some(
-                DragState::Region { page_index, .. }
-                | DragState::InlineText { page_index, .. }
-                | DragState::InlineNote { page_index, .. },
-            ) => self.pdf_point(*page_index, event.position),
+                DragState::InlineText { page_index, .. } | DragState::InlineNote { page_index, .. },
+            ) => self
+                .pdf_point(*page_index, event.position)
+                .map(|point| (*page_index, point)),
             _ => None,
         };
         match &mut self.drag {
@@ -795,11 +859,16 @@ impl EditorView {
                 let y = f32::from(offset.y) + f32::from(event.position.y - start.y);
                 self.scroll.set_offset(self.clamp_offset(x, y));
             }
-            Some(DragState::Region { current, .. }) => {
-                let Some(point) = pointer else {
+            Some(DragState::Region {
+                current,
+                current_page,
+                ..
+            }) => {
+                let Some((page, point)) = pointer else {
                     return;
                 };
                 *current = point;
+                *current_page = page;
             }
             Some(DragState::InlineText { .. }) => {
                 self.move_inline_text(event.position, cx);
@@ -815,13 +884,14 @@ impl EditorView {
             page_index,
             start,
             current,
+            current_page,
         }) = self.drag.as_ref()
             && matches!(
                 self.tool,
                 Tool::Select | Tool::Highlight | Tool::Underline | Tool::Strikeout
             )
         {
-            self.select_text_range(*page_index, *start, *current);
+            self.select_text_range(*page_index, *start, *current_page, *current);
         }
         cx.notify();
     }
@@ -854,15 +924,27 @@ impl EditorView {
                 return;
             }
         };
-        if let Some(point) = self.pdf_point(page_index, event.position)
-            && let DragState::Region { current, .. } = &mut drag
+        let hovered = self.page_at(event.position).unwrap_or(page_index);
+        if let Some(point) = self.pdf_point(hovered, event.position)
+            && let DragState::Region {
+                current,
+                current_page,
+                ..
+            } = &mut drag
         {
             *current = point;
+            *current_page = hovered;
         }
-        let DragState::Region { start, current, .. } = drag else {
+        let DragState::Region {
+            start,
+            current,
+            current_page,
+            ..
+        } = drag
+        else {
             return;
         };
-        self.finish_region(page_index, start, current, window, cx);
+        self.finish_region(page_index, start, current_page, current, window, cx);
         cx.notify();
     }
 
@@ -883,31 +965,33 @@ impl EditorView {
         &mut self,
         page_index: usize,
         start: document_core::PdfPoint,
+        current_page: usize,
         current: document_core::PdfPoint,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         match self.tool {
             Tool::Select | Tool::Edit => {
-                self.select_text_range(page_index, start, current);
+                self.select_text_range(page_index, start, current_page, current);
             }
             Tool::Highlight => {
-                self.select_text_range(page_index, start, current);
-                self.highlight_selection(page_index, window, cx);
+                self.select_text_range(page_index, start, current_page, current);
+                self.markup_selection(Markup::Highlight, window, cx);
             }
             Tool::Underline => {
-                self.select_text_range(page_index, start, current);
-                self.markup_selection(page_index, Markup::Underline, window, cx);
+                self.select_text_range(page_index, start, current_page, current);
+                self.markup_selection(Markup::Underline, window, cx);
             }
             Tool::Strikeout => {
-                self.select_text_range(page_index, start, current);
-                self.markup_selection(page_index, Markup::Strikeout, window, cx);
+                self.select_text_range(page_index, start, current_page, current);
+                self.markup_selection(Markup::Strikeout, window, cx);
             }
             Tool::Shape => {
                 if let Some(rect) = (DragState::Region {
                     page_index,
                     start,
                     current,
+                    current_page,
                 })
                 .rect()
                 {
@@ -931,6 +1015,7 @@ impl EditorView {
                     page_index,
                     start,
                     current,
+                    current_page,
                 })
                 .rect()
                 {
@@ -947,40 +1032,202 @@ impl EditorView {
         }
     }
 
+    /// Selects every text run between the drag anchor and the pointer, across
+    /// page boundaries when the drag leaves the starting page.
     fn select_text_range(
         &mut self,
-        page_index: usize,
-        start: document_core::PdfPoint,
-        current: document_core::PdfPoint,
+        anchor_page: usize,
+        anchor: document_core::PdfPoint,
+        head_page: usize,
+        head: document_core::PdfPoint,
     ) {
-        let Some(page) = self.pages.get(page_index) else {
+        let Some(anchor_edge) = self.selection_edge(anchor_page, anchor, head_page > anchor_page)
+        else {
             return;
         };
-        let selection = text_selection(&page.fragments, start, current);
-        self.selected_rects = selection.iter().map(|(rect, _)| *rect).collect();
-        self.selected_text = join_selection(&selection).into();
-        if self.selected_rects.is_empty() {
-            self.selected_text = "No text selected".into();
-        }
+        let Some(head_edge) = self.selection_edge(head_page, head, head_page < anchor_page) else {
+            return;
+        };
+        self.set_selection(text_selection(&self.pages, anchor_edge, head_edge));
     }
 
-    fn highlight_selection(
-        &mut self,
+    /// Resolves a pointer position to a text run. `edge_of_page` snaps to the
+    /// first or last run when the pointer sits past the text on that page,
+    /// which is what happens while dragging through a page break.
+    fn selection_edge(
+        &self,
         page_index: usize,
+        point: document_core::PdfPoint,
+        toward_end: bool,
+    ) -> Option<SelectionEdge> {
+        let page = self.pages.get(page_index)?;
+        if page.fragments.is_empty() {
+            return None;
+        }
+        let fragment = nearest_fragment(&page.fragments, point).unwrap_or(if toward_end {
+            page.fragments.len() - 1
+        } else {
+            0
+        });
+        Some(SelectionEdge {
+            page_index,
+            fragment,
+        })
+    }
+
+    pub(super) fn set_selection(&mut self, runs: Vec<SelectedRun>) {
+        self.selected_text = if runs.is_empty() {
+            "No text selected".into()
+        } else {
+            join_selection(&runs).into()
+        };
+        self.selection = runs;
+    }
+
+    pub(super) fn clear_selection(&mut self) {
+        self.selection.clear();
+        self.selected_text = "No text selected".into();
+        self.selected_edit = None;
+    }
+
+    /// The page whose painted bounds contain the pointer, if any.
+    fn page_at(&self, position: gpui::Point<gpui::Pixels>) -> Option<usize> {
+        self.pages
+            .iter()
+            .position(|page| page.bounds.get().contains(&position))
+    }
+
+    /// Deletes whatever is selected: a clicked annotation, otherwise the last
+    /// edit that touched the text selection.
+    pub(super) fn delete_selection(
+        &mut self,
+        _: &DeleteSelection,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.markup_selection(page_index, Markup::Highlight, window, cx);
+        if self.input_has_focus(window, cx) {
+            return;
+        }
+        if let Some(index) = self.selected_edit.take()
+            && self.history.remove(index).is_some()
+        {
+            self.mark_edited(window, cx);
+            self.flash("Annotation deleted", Severity::Info, cx);
+            return;
+        }
+        if self.has_selection() {
+            self.clear_selection();
+            self.flash("Selection cleared", Severity::Info, cx);
+            return;
+        }
+        self.flash("Select an annotation to delete", Severity::Info, cx);
     }
 
-    fn markup_selection(
+    /// Marks a placed annotation as the target of keyboard actions.
+    pub(super) fn select_edit(&mut self, edit_index: usize, cx: &mut Context<Self>) {
+        self.selection.clear();
+        self.selected_text = "No text selected".into();
+        self.selected_edit = Some(edit_index);
+        cx.notify();
+    }
+
+    pub(super) fn scroll_up(&mut self, _: &ScrollUp, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_by(-SCROLL_STEP, cx);
+    }
+
+    pub(super) fn scroll_down(&mut self, _: &ScrollDown, _: &mut Window, cx: &mut Context<Self>) {
+        self.scroll_by(SCROLL_STEP, cx);
+    }
+
+    pub(super) fn scroll_page_up(
         &mut self,
-        page_index: usize,
+        _: &ScrollPageUp,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_by(-self.viewport_step(), cx);
+    }
+
+    pub(super) fn scroll_page_down(
+        &mut self,
+        _: &ScrollPageDown,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll_by(self.viewport_step(), cx);
+    }
+
+    pub(super) fn scroll_to_top(
+        &mut self,
+        _: &ScrollToTop,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.scroll.set_offset(point(px(0.0), px(0.0)));
+        self.sync_current_page_from_scroll();
+        cx.notify();
+    }
+
+    pub(super) fn scroll_to_bottom(
+        &mut self,
+        _: &ScrollToBottom,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let max = self.scroll.max_offset();
+        self.scroll
+            .set_offset(point(px(0.0), px(-f32::from(max.height).max(0.0))));
+        self.sync_current_page_from_scroll();
+        cx.notify();
+    }
+
+    fn viewport_step(&self) -> f32 {
+        // Overlap slightly so no line is skipped between screenfuls.
+        (f32::from(self.scroll.bounds().size.height) * 0.9).max(SCROLL_STEP)
+    }
+
+    fn scroll_by(&mut self, delta: f32, cx: &mut Context<Self>) {
+        let offset = self.scroll.offset();
+        self.scroll
+            .set_offset(self.clamp_offset(f32::from(offset.x), f32::from(offset.y) - delta));
+        self.sync_current_page_from_scroll();
+        self.request_visible_pages();
+        cx.notify();
+    }
+
+    pub(super) fn toggle_sidebar(
+        &mut self,
+        _: &ToggleSidebar,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.panels.sidebar = !self.panels.sidebar;
+        cx.notify();
+    }
+
+    pub(super) fn toggle_properties_panel(
+        &mut self,
+        _: &TogglePropertiesPanel,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.panels.properties = !self.panels.properties;
+        cx.notify();
+    }
+
+    pub(super) fn has_selection(&self) -> bool {
+        !self.selection.is_empty()
+    }
+
+    /// Applies a markup annotation to the selection, emitting one edit per
+    /// page so a selection spanning pages is annotated on all of them.
+    pub(super) fn markup_selection(
+        &mut self,
         markup: Markup,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selected_rects.is_empty() {
+        if self.selection.is_empty() {
             self.flash(
                 format!(
                     "No text under the {} selection",
@@ -991,29 +1238,45 @@ impl EditorView {
             );
             return;
         }
-        let rects = self.selected_rects.clone();
-        let edit = match markup {
-            Markup::Highlight => EditCommand::Highlight {
-                page_index,
-                rects,
-                color: self.highlight_color,
-            },
-            Markup::Underline => EditCommand::Underline {
-                page_index,
-                rects,
-                color: self.annotation_color,
-            },
-            Markup::Strikeout => EditCommand::StrikeOut {
-                page_index,
-                rects,
-                color: self.annotation_color,
-            },
-        };
-        self.history.push(edit);
-        self.selected_rects.clear();
-        self.selected_text = "No text selected".into();
+        let mut pages: Vec<(usize, Vec<document_core::PdfRect>)> = Vec::new();
+        for run in &self.selection {
+            match pages.last_mut() {
+                Some((page, rects)) if *page == run.page_index => rects.push(run.rect),
+                _ => pages.push((run.page_index, vec![run.rect])),
+            }
+        }
+        let page_count = pages.len();
+        for (page_index, rects) in pages {
+            self.history.push(match markup {
+                Markup::Highlight => EditCommand::Highlight {
+                    page_index,
+                    rects,
+                    color: self.highlight_color,
+                },
+                Markup::Underline => EditCommand::Underline {
+                    page_index,
+                    rects,
+                    color: self.annotation_color,
+                },
+                Markup::Strikeout => EditCommand::StrikeOut {
+                    page_index,
+                    rects,
+                    color: self.annotation_color,
+                },
+            });
+        }
+        self.clear_selection();
         self.mark_edited(window, cx);
-        self.flash(format!("{} added", markup.label()), Severity::Info, cx);
+        let scope = if page_count > 1 {
+            format!(" across {page_count} pages")
+        } else {
+            String::new()
+        };
+        self.flash(
+            format!("{} added{scope}", markup.label()),
+            Severity::Info,
+            cx,
+        );
     }
 
     pub(super) fn copy_selection(
@@ -1117,30 +1380,55 @@ impl Markup {
     }
 }
 
+/// Where a selection starts or ends: a page plus an index into that page's
+/// text runs.
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd)]
+struct SelectionEdge {
+    page_index: usize,
+    fragment: usize,
+}
+
+/// Text runs between two edges, walking whole pages in between so a drag can
+/// span any number of pages.
 fn text_selection(
-    fragments: &[pdf_engine::TextFragment],
-    start: document_core::PdfPoint,
-    current: document_core::PdfPoint,
-) -> Vec<(document_core::PdfRect, String)> {
-    let Some(start_index) = nearest_fragment(fragments, start) else {
-        return Vec::new();
-    };
-    let Some(end_index) = nearest_fragment(fragments, current) else {
-        return Vec::new();
-    };
-    let forward = start_index <= end_index;
-    let (first_index, last_index) = if forward {
-        (start_index, end_index)
+    pages: &[DocumentPage],
+    anchor: SelectionEdge,
+    head: SelectionEdge,
+) -> Vec<SelectedRun> {
+    let (first, last) = if anchor <= head {
+        (anchor, head)
     } else {
-        (end_index, start_index)
+        (head, anchor)
     };
 
-    (first_index..=last_index)
-        .map(|index| {
-            let fragment = &fragments[index];
-            (fragment.rect, fragment.text.clone())
-        })
-        .collect()
+    let mut runs = Vec::new();
+    for page_index in first.page_index..=last.page_index.min(pages.len().saturating_sub(1)) {
+        let Some(page) = pages.get(page_index) else {
+            break;
+        };
+        if page.fragments.is_empty() {
+            continue;
+        }
+        let start = if page_index == first.page_index {
+            first.fragment
+        } else {
+            0
+        };
+        let end = if page_index == last.page_index {
+            last.fragment
+        } else {
+            page.fragments.len() - 1
+        };
+        for fragment in start..=end.min(page.fragments.len() - 1) {
+            let fragment = &page.fragments[fragment];
+            runs.push(SelectedRun {
+                page_index,
+                rect: fragment.rect,
+                text: fragment.text.clone(),
+            });
+        }
+    }
+    runs
 }
 
 /// Finds the fragment under (or nearest to) the point, but ignores fragments
@@ -1167,25 +1455,29 @@ fn point_distance(rect: document_core::PdfRect, point: document_core::PdfPoint) 
 
 /// PDF text runs carry no spaces, so word and line breaks are reconstructed
 /// from the geometry of neighbouring runs.
-fn join_selection(selection: &[(document_core::PdfRect, String)]) -> String {
+fn join_selection(selection: &[SelectedRun]) -> String {
     let mut text = String::new();
-    let mut previous: Option<document_core::PdfRect> = None;
-    for (rect, fragment) in selection {
+    let mut previous: Option<&SelectedRun> = None;
+    for run in selection {
         if let Some(last) = previous {
-            let line_height = (last.y_max - last.y_min).max(1.0);
-            if (last.y_min - rect.y_min).abs() > line_height * 0.5 {
-                text.push('\n');
-            } else {
-                let gap = rect.x_min - last.x_max;
-                let space = (last.y_max - last.y_min) * 0.22;
-                let ends_open = text.ends_with(|c: char| c.is_whitespace() || c == '-');
-                if gap > space && !ends_open && !fragment.starts_with(char::is_whitespace) {
-                    text.push(' ');
+            if last.page_index == run.page_index {
+                let line_height = (last.rect.y_max - last.rect.y_min).max(1.0);
+                if (last.rect.y_min - run.rect.y_min).abs() > line_height * 0.5 {
+                    text.push('\n');
+                } else {
+                    let gap = run.rect.x_min - last.rect.x_max;
+                    let space = line_height * 0.22;
+                    let ends_open = text.ends_with(|c: char| c.is_whitespace() || c == '-');
+                    if gap > space && !ends_open && !run.text.starts_with(char::is_whitespace) {
+                        text.push(' ');
+                    }
                 }
+            } else {
+                text.push('\n');
             }
         }
-        text.push_str(fragment);
-        previous = Some(*rect);
+        text.push_str(&run.text);
+        previous = Some(run);
     }
     text
 }
@@ -1200,37 +1492,91 @@ fn distance(viewport: Viewport, page_index: usize) -> u32 {
 #[cfg(test)]
 mod tests {
     use document_core::{PdfPoint, PdfRect};
-    use pdf_engine::TextFragment;
+    use pdf_engine::{PageMetadata, TextFragment};
 
-    use super::{MAX_ZOOM, MIN_ZOOM, join_selection, next_zoom_step, text_selection};
+    use super::{
+        DocumentPage, MAX_ZOOM, MIN_ZOOM, SelectedRun, SelectionEdge, join_selection,
+        next_zoom_step, text_selection,
+    };
+
+    fn page(index: usize, words: &[(&str, f64)]) -> DocumentPage {
+        let box_rect = PdfRect::new(0.0, 0.0, 600.0, 800.0).unwrap();
+        let geometry = document_core::PageGeometry::new(
+            box_rect,
+            box_rect,
+            document_core::Rotation::None,
+            1.0,
+        )
+        .unwrap();
+        let mut page = DocumentPage::placeholder(PageMetadata { index, geometry });
+        page.load_text(
+            String::new(),
+            words
+                .iter()
+                .map(|(text, x)| TextFragment {
+                    text: (*text).to_owned(),
+                    rect: PdfRect::new(*x, 100.0, x + 40.0, 110.0).unwrap(),
+                })
+                .collect(),
+        );
+        page
+    }
+
+    fn edge(page_index: usize, fragment: usize) -> SelectionEdge {
+        SelectionEdge {
+            page_index,
+            fragment,
+        }
+    }
 
     #[test]
-    fn text_selection_preserves_complete_fragment_text() {
-        let fragments = vec![
-            TextFragment {
-                text: "Hello ".into(),
-                rect: PdfRect::new(0.0, 0.0, 60.0, 10.0).unwrap(),
+    fn selection_spans_whole_pages_between_its_edges() {
+        let pages = vec![
+            page(0, &[("one", 0.0), ("two", 50.0)]),
+            page(1, &[("three", 0.0), ("four", 50.0)]),
+            page(2, &[("five", 0.0), ("six", 50.0)]),
+        ];
+
+        let runs = text_selection(&pages, edge(0, 1), edge(2, 0));
+
+        assert_eq!(
+            runs.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
+            ["two", "three", "four", "five"]
+        );
+    }
+
+    #[test]
+    fn selection_is_the_same_when_dragged_backwards() {
+        let pages = vec![
+            page(0, &[("one", 0.0), ("two", 50.0)]),
+            page(1, &[("three", 0.0)]),
+        ];
+
+        let forward = text_selection(&pages, edge(0, 1), edge(1, 0));
+        let backward = text_selection(&pages, edge(1, 0), edge(0, 1));
+
+        let texts =
+            |runs: &[SelectedRun]| runs.iter().map(|run| run.text.clone()).collect::<Vec<_>>();
+        assert_eq!(texts(&forward), texts(&backward));
+        assert_eq!(texts(&forward), ["two", "three"]);
+    }
+
+    #[test]
+    fn joined_selection_breaks_lines_between_pages() {
+        let runs = vec![
+            SelectedRun {
+                page_index: 0,
+                rect: PdfRect::new(0.0, 100.0, 40.0, 110.0).unwrap(),
+                text: "end".to_owned(),
             },
-            TextFragment {
-                text: "world".into(),
-                rect: PdfRect::new(60.0, 0.0, 110.0, 10.0).unwrap(),
+            SelectedRun {
+                page_index: 1,
+                rect: PdfRect::new(0.0, 700.0, 40.0, 710.0).unwrap(),
+                text: "start".to_owned(),
             },
         ];
 
-        let selected = text_selection(
-            &fragments,
-            PdfPoint::new(20.0, 5.0),
-            PdfPoint::new(90.0, 5.0),
-        );
-
-        assert_eq!(
-            selected
-                .iter()
-                .map(|(_, text)| text.as_str())
-                .collect::<String>(),
-            "Hello world"
-        );
-        assert_eq!(selected.len(), 2);
+        assert_eq!(join_selection(&runs), "end\nstart");
     }
 
     #[test]
@@ -1243,60 +1589,57 @@ mod tests {
     }
 
     #[test]
-    fn clicking_far_from_text_selects_nothing() {
+    fn selection_reconstructs_spaces_and_line_breaks() {
+        let runs = vec![
+            SelectedRun {
+                page_index: 0,
+                rect: PdfRect::new(0.0, 100.0, 40.0, 110.0).unwrap(),
+                text: "Hello".to_owned(),
+            },
+            SelectedRun {
+                page_index: 0,
+                rect: PdfRect::new(46.0, 100.0, 90.0, 110.0).unwrap(),
+                text: "world".to_owned(),
+            },
+            SelectedRun {
+                page_index: 0,
+                rect: PdfRect::new(0.0, 86.0, 30.0, 96.0).unwrap(),
+                text: "next".to_owned(),
+            },
+        ];
+
+        assert_eq!(join_selection(&runs), "Hello world\nnext");
+    }
+
+    #[test]
+    fn selection_keeps_tight_runs_as_one_word() {
+        let runs = vec![
+            SelectedRun {
+                page_index: 0,
+                rect: PdfRect::new(0.0, 100.0, 20.0, 110.0).unwrap(),
+                text: "Zusammen".to_owned(),
+            },
+            SelectedRun {
+                page_index: 0,
+                rect: PdfRect::new(20.2, 100.0, 40.0, 110.0).unwrap(),
+                text: "fassung".to_owned(),
+            },
+        ];
+
+        assert_eq!(join_selection(&runs), "Zusammenfassung");
+    }
+
+    #[test]
+    fn point_far_from_any_text_matches_no_fragment() {
         let fragments = vec![TextFragment {
             text: "Hello".into(),
             rect: PdfRect::new(0.0, 0.0, 50.0, 10.0).unwrap(),
         }];
 
-        let far = text_selection(
-            &fragments,
-            PdfPoint::new(0.0, 600.0),
-            PdfPoint::new(10.0, 600.0),
+        assert!(super::nearest_fragment(&fragments, PdfPoint::new(0.0, 600.0)).is_none());
+        assert_eq!(
+            super::nearest_fragment(&fragments, PdfPoint::new(5.0, 5.0)),
+            Some(0)
         );
-        assert!(far.is_empty());
-
-        let near = text_selection(
-            &fragments,
-            PdfPoint::new(5.0, 5.0),
-            PdfPoint::new(40.0, 5.0),
-        );
-        assert_eq!(near.len(), 1);
-    }
-
-    #[test]
-    fn selection_reconstructs_spaces_and_line_breaks() {
-        let selection = vec![
-            (
-                PdfRect::new(0.0, 100.0, 40.0, 110.0).unwrap(),
-                "Hello".to_owned(),
-            ),
-            (
-                PdfRect::new(46.0, 100.0, 90.0, 110.0).unwrap(),
-                "world".to_owned(),
-            ),
-            (
-                PdfRect::new(0.0, 86.0, 30.0, 96.0).unwrap(),
-                "next".to_owned(),
-            ),
-        ];
-
-        assert_eq!(join_selection(&selection), "Hello world\nnext");
-    }
-
-    #[test]
-    fn selection_keeps_tight_runs_as_one_word() {
-        let selection = vec![
-            (
-                PdfRect::new(0.0, 100.0, 20.0, 110.0).unwrap(),
-                "Zusammen".to_owned(),
-            ),
-            (
-                PdfRect::new(20.2, 100.0, 40.0, 110.0).unwrap(),
-                "fassung".to_owned(),
-            ),
-        ];
-
-        assert_eq!(join_selection(&selection), "Zusammenfassung");
     }
 }
