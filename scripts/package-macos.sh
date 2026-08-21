@@ -11,6 +11,7 @@ cargo build -p gpui-pdf --release --locked
 mkdir -p "$contents_dir/MacOS" "$contents_dir/Resources"
 cp "$project_dir/target/release/gpui-pdf" "$contents_dir/MacOS/gpui-pdf"
 cp "$project_dir/packaging/macos/Info.plist" "$contents_dir/Info.plist"
+cp "$project_dir/packaging/macos/GPUI-PDF-Liquid-Glass-v3.icns" "$contents_dir/Resources/GPUI-PDF-Liquid-Glass-v3.icns"
 chmod 755 "$contents_dir/MacOS/gpui-pdf"
 
 plutil -lint "$contents_dir/Info.plist"

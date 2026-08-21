@@ -12,6 +12,8 @@
     <string>6.0</string>
     <key>CFBundleName</key>
     <string>GPUI PDF</string>
+    <key>CFBundleIconFile</key>
+    <string>GPUI-PDF-Liquid-Glass-v3</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
