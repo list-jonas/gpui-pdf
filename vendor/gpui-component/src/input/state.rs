@@ -238,6 +238,8 @@ pub(super) struct LastLayout {
     pub(super) wrap_width: Option<Pixels>,
     /// The line number area width of text layout, if not line number, this will be 0px.
     pub(super) line_number_width: Pixels,
+    /// Horizontal offset applied to the text to honor `text_align` (single line only).
+    pub(super) align_offset: Pixels,
     /// The cursor position (top, left) in pixels.
     pub(super) cursor_bounds: Option<Bounds<Pixels>>,
 }
@@ -583,7 +585,10 @@ impl InputState {
             let local_offset = offset.saturating_sub(prev_lines_offset);
             if let Some(pos) = line.position_for_index(local_offset, line_height) {
                 let sub_line_index = (pos.y / line_height) as usize;
-                let adjusted_pos = point(pos.x + last_layout.line_number_width, pos.y + y_offset);
+                let adjusted_pos = point(
+                    pos.x + last_layout.line_number_width + last_layout.align_offset,
+                    pos.y + y_offset,
+                );
                 return (line_index, sub_line_index, Some(adjusted_pos));
             }
 
@@ -1532,7 +1537,8 @@ impl InputState {
         //
         // - included the input padding.
         // - included the scroll offset.
-        let inner_position = position - bounds.origin - point(line_number_width, px(0.));
+        let inner_position =
+            position - bounds.origin - point(line_number_width + last_layout.align_offset, px(0.));
 
         let mut index = last_layout.visible_range_offset.start;
         let mut y_offset = last_layout.visible_top;
@@ -2087,7 +2093,7 @@ impl EntityInputHandler for InputState {
 
         let mut start_origin = None;
         let mut end_origin = None;
-        let line_number_origin = point(line_number_width, px(0.));
+        let line_number_origin = point(line_number_width + last_layout.align_offset, px(0.));
         let mut y_offset = last_layout.visible_top;
         let mut index_offset = last_layout.visible_range_offset.start;
 

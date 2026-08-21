@@ -3,8 +3,8 @@ use std::{ops::Range, rc::Rc};
 use gpui::{
     App, Bounds, Corners, Element, ElementId, ElementInputHandler, Entity, GlobalElementId, Half,
     HighlightStyle, Hitbox, Hsla, IntoElement, LayoutId, MouseButton, MouseMoveEvent, Path, Pixels,
-    Point, ShapedLine, SharedString, Size, Style, TextRun, TextStyle, UnderlineStyle, Window, fill,
-    point, px, relative, size,
+    Point, ShapedLine, SharedString, Size, Style, TextAlign, TextRun, TextStyle, UnderlineStyle,
+    Window, fill, point, px, relative, size,
 };
 use ropey::Rope;
 use smallvec::SmallVec;
@@ -230,7 +230,11 @@ impl TextElement {
 
             cursor_bounds = Some(Bounds::new(
                 point(
-                    bounds.left() + cursor_pos.x + line_number_width + scroll_offset.x,
+                    bounds.left()
+                        + cursor_pos.x
+                        + line_number_width
+                        + last_layout.align_offset
+                        + scroll_offset.x,
                     bounds.top() + cursor_pos.y + ((line_height - cursor_height) / 2.),
                 ),
                 size(CURSOR_WIDTH, cursor_height),
@@ -369,7 +373,8 @@ impl TextElement {
 
         // print_points_as_svg_path(&line_corners, &points);
 
-        let path_origin = bounds.origin + point(line_number_width, px(0.));
+        let path_origin =
+            bounds.origin + point(line_number_width + last_layout.align_offset, px(0.));
         let first_p = *points.get(0).unwrap();
         let mut builder = gpui::PathBuilder::fill();
         builder.move_to(path_origin + first_p);
@@ -985,6 +990,7 @@ impl Element for TextElement {
             line_height,
             wrap_width,
             line_number_width,
+            align_offset: px(0.),
             lines: Rc::new(vec![]),
             cursor_bounds: None,
         };
@@ -1094,6 +1100,24 @@ impl Element for TextElement {
                 .width;
         }
         last_layout.lines = Rc::new(lines);
+
+        // Single-line inputs shape one line and paint it at the left edge, so a
+        // `text_align` other than left was silently ignored. Resolve the offset
+        // once here; cursor, selection and hit testing all read it back.
+        if state.mode.is_single_line() {
+            let content_width = bounds.size.width - line_number_width;
+            let text_width = last_layout
+                .lines
+                .first()
+                .map(|line| line.longest_width)
+                .unwrap_or_default();
+            let free_space = (content_width - text_width).max(px(0.));
+            last_layout.align_offset = match style.text_align {
+                TextAlign::Left => px(0.),
+                TextAlign::Center => free_space.half(),
+                TextAlign::Right => free_space,
+            };
+        }
 
         let (ghost_first_line, ghost_lines) = Self::layout_inline_completion(
             state,
@@ -1367,7 +1391,9 @@ impl Element for TextElement {
         for (ix, line) in prepaint.last_layout.lines.iter().enumerate() {
             let row = visible_range.start + ix;
             let p = point(
-                origin.x + prepaint.last_layout.line_number_width,
+                origin.x
+                    + prepaint.last_layout.line_number_width
+                    + prepaint.last_layout.align_offset,
                 origin.y + offset_y,
             );
 

@@ -455,17 +455,21 @@ impl EditorView {
                             .text_sm()
                             .child(
                                 div()
-                                    .w(px(44.0))
+                                    .w(px(52.0))
                                     .h(px(28.0))
+                                    .flex()
+                                    .items_center()
                                     .rounded_md()
                                     .border_1()
                                     .border_color(tint(BORDER_STRONG))
                                     .bg(tint(WELL_TINT))
                                     .child(
                                         Input::new(&self.page_input)
+                                            .small()
                                             .appearance(false)
                                             .bordered(false)
                                             .focus_bordered(false)
+                                            .px(px(4.0))
                                             .text_center(),
                                     ),
                             )
