@@ -135,10 +135,28 @@ fn text_fragments_have_selectable_page_geometry() {
     let mut document = ZpdfEngine.open(OpenRequest::new(text_pdf())).unwrap();
     let fragments = document.text_fragments(0).unwrap();
 
-    assert_eq!(fragments.len(), 1);
-    assert_eq!(fragments[0].text, "Phase zero");
-    assert!(fragments[0].rect.width() > 50.0);
-    assert!(fragments[0].rect.height() > 10.0);
+    assert_eq!(fragments.len(), "Phase zero".chars().count());
+    assert_eq!(
+        fragments
+            .iter()
+            .map(|fragment| fragment.text.as_str())
+            .collect::<String>(),
+        "Phase zero"
+    );
+    assert_eq!(fragments[0].text, "P");
+    assert_eq!(fragments[5].text, " ");
+    assert_eq!(fragments[9].text, "o");
+    assert!(fragments.iter().all(|fragment| fragment.rect.width() > 1.0));
+    assert!(
+        fragments
+            .iter()
+            .all(|fragment| fragment.rect.height() > 10.0)
+    );
+    assert!(
+        fragments
+            .windows(2)
+            .all(|pair| pair[0].rect.x_max <= pair[1].rect.x_min)
+    );
 }
 
 #[test]

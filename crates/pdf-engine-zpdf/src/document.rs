@@ -331,20 +331,49 @@ impl PdfReader for ZpdfDocument {
         Ok(self
             .page_spans(page_index)?
             .iter()
-            .filter(|span| !span.text.trim().is_empty())
-            .filter_map(|span| {
-                let x0 = span.x.min(span.x + span.advance);
-                let x1 = span.x.max(span.x + span.advance);
-                let size = f64::from(span.size).abs().max(1.0);
-                document_core::PdfRect::new(x0, span.y - size * 0.25, x1, span.y + size * 0.8)
-                    .ok()
-                    .map(|rect| TextFragment {
-                        text: span.text.clone(),
-                        rect,
-                    })
-            })
+            .flat_map(character_fragments)
             .collect())
     }
+}
+
+/// Turns one PDF show-text operation into independently selectable characters.
+/// zpdf exposes a single advance for the operation rather than glyph advances,
+/// so each character receives an equal share of that advance. This keeps the
+/// hit-test and annotation geometry precise enough for character and word
+/// selection without discarding whitespace inside a text operation.
+fn character_fragments(span: &TextSpan) -> Vec<TextFragment> {
+    let character_count = span.text.chars().count();
+    let Ok(character_count) = u32::try_from(character_count) else {
+        return Vec::new();
+    };
+    if character_count == 0 {
+        return Vec::new();
+    }
+
+    let count = f64::from(character_count);
+    let size = f64::from(span.size).abs().max(1.0);
+    span.text
+        .chars()
+        .enumerate()
+        .filter_map(|(index, character)| {
+            let index = u32::try_from(index).ok()?;
+            let start = f64::from(index) / count;
+            let end = f64::from(index.saturating_add(1)) / count;
+            let x0 = span.x + span.advance * start;
+            let x1 = span.x + span.advance * end;
+            document_core::PdfRect::new(
+                x0.min(x1),
+                span.y - size * 0.25,
+                x0.max(x1),
+                span.y + size * 0.8,
+            )
+            .ok()
+            .map(|rect| TextFragment {
+                text: character.to_string(),
+                rect,
+            })
+        })
+        .collect()
 }
 
 impl ZpdfDocument {
