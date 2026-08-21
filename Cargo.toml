@@ -43,3 +43,4 @@ debug = "limited"
 
 [patch.crates-io]
 gpui = { path = "vendor/gpui" }
+gpui-component = { path = "vendor/gpui-component" }

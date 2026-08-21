@@ -63,15 +63,15 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Select, window, cx);
+        self.activate_tool_from_key(Tool::Select, window, cx);
     }
 
     pub(super) fn hand_tool(&mut self, _: &HandTool, window: &mut Window, cx: &mut Context<Self>) {
-        self.activate_tool(Tool::Hand, window, cx);
+        self.activate_tool_from_key(Tool::Hand, window, cx);
     }
 
     pub(super) fn edit_tool(&mut self, _: &EditTool, window: &mut Window, cx: &mut Context<Self>) {
-        self.activate_tool(Tool::Edit, window, cx);
+        self.activate_tool_from_key(Tool::Edit, window, cx);
     }
 
     pub(super) fn highlight_tool(
@@ -80,7 +80,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Highlight, window, cx);
+        self.activate_tool_from_key(Tool::Highlight, window, cx);
     }
 
     pub(super) fn add_text_tool(
@@ -89,7 +89,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::AddText, window, cx);
+        self.activate_tool_from_key(Tool::AddText, window, cx);
     }
 
     pub(super) fn underline_tool(
@@ -98,7 +98,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Underline, window, cx);
+        self.activate_tool_from_key(Tool::Underline, window, cx);
     }
 
     pub(super) fn strikeout_tool(
@@ -107,11 +107,11 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Strikeout, window, cx);
+        self.activate_tool_from_key(Tool::Strikeout, window, cx);
     }
 
     pub(super) fn note_tool(&mut self, _: &NoteTool, window: &mut Window, cx: &mut Context<Self>) {
-        self.activate_tool(Tool::Note, window, cx);
+        self.activate_tool_from_key(Tool::Note, window, cx);
     }
 
     pub(super) fn signature_tool(
@@ -120,7 +120,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Signature, window, cx);
+        self.activate_tool_from_key(Tool::Signature, window, cx);
     }
 
     pub(super) fn shape_tool(
@@ -129,7 +129,7 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Shape, window, cx);
+        self.activate_tool_from_key(Tool::Shape, window, cx);
     }
 
     pub(super) fn redact_tool(
@@ -138,23 +138,43 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.activate_tool(Tool::Redact, window, cx);
+        self.activate_tool_from_key(Tool::Redact, window, cx);
     }
 
     fn activate_tool(&mut self, tool: Tool, window: &mut Window, cx: &mut Context<Self>) {
-        if self.input_has_focus(window, cx) {
-            return;
-        }
+        // Only keystrokes must be blocked while typing. Explicit requests
+        // (toolbar, menu) always switch, committing any open draft first.
         if self.tool == tool {
             return;
         }
         self.tool = tool;
         self.drag = None;
         self.materialize_inline_edits(cx);
+        self.focus_handle.focus(window);
         if !matches!(tool, Tool::Select | Tool::Hand) {
             self.clear_selection();
         }
         self.flash(format!("{} tool", tool.label()), Severity::Info, cx);
+    }
+
+    /// Tool shortcuts are single letters, so they must not fire while a text
+    /// field or an on-page draft has the keyboard.
+    fn activate_tool_from_key(&mut self, tool: Tool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.input_has_focus(window, cx) {
+            return;
+        }
+        self.activate_tool(tool, window, cx);
+    }
+
+    /// Clicking a tool in the toolbar is unambiguous, so it switches even
+    /// while an on-page draft or a text field holds the keyboard.
+    pub(super) fn activate_tool_from_click(
+        &mut self,
+        tool: Tool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.activate_tool(tool, window, cx);
     }
 
     pub(super) fn toggle_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -273,10 +293,17 @@ impl EditorView {
             return;
         }
         if self.inline_text.is_some() || self.inline_note.is_some() {
-            self.inline_text = None;
-            self.inline_note = None;
+            // Typed text is real work, so Escape commits it and only an empty
+            // draft is thrown away. `materialize_*` drops blank drafts.
+            let had_text = self.draft_has_text(cx);
+            self.materialize_inline_edits(cx);
             self.focus_handle.focus(window);
-            self.flash("Discarded draft", Severity::Info, cx);
+            if had_text {
+                self.mark_edited(window, cx);
+                self.flash("Text added", Severity::Info, cx);
+            } else {
+                self.flash("Discarded empty draft", Severity::Info, cx);
+            }
             return;
         }
         if self.panels.search {
@@ -289,7 +316,7 @@ impl EditorView {
             return;
         }
         if self.tool != Tool::Select {
-            self.activate_tool(Tool::Select, window, cx);
+            self.activate_tool_from_key(Tool::Select, window, cx);
         }
     }
 
@@ -679,6 +706,20 @@ impl EditorView {
     pub(super) fn materialize_inline_edits(&mut self, cx: &App) {
         self.materialize_inline_text(cx);
         self.materialize_inline_note(cx);
+    }
+
+    /// True when an on-page draft holds text worth keeping.
+    fn draft_has_text(&self, cx: &App) -> bool {
+        let filled = |input: &gpui::Entity<gpui_component::input::InputState>| {
+            !input.read(cx).value().trim().is_empty()
+        };
+        self.inline_text
+            .as_ref()
+            .is_some_and(|inline| filled(&inline.input))
+            || self
+                .inline_note
+                .as_ref()
+                .is_some_and(|note| filled(&note.input))
     }
 
     fn materialize_inline_text(&mut self, cx: &App) {

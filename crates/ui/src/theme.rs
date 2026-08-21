@@ -31,6 +31,10 @@ pub const HOVER: u32 = 0xffff_ff14;
 pub const ACTIVE: u32 = 0xffff_ff1f;
 
 pub const TEXT: u32 = 0x00f2_f4f7;
+/// Ink for text drawn on the white PDF page (form values, added text,
+/// comments). The chrome palette is built for dark glass, so page content
+/// needs its own near-black.
+pub const PAGE_TEXT: u32 = 0x001f_2937;
 pub const TEXT_MUTED: u32 = 0xffff_ffa3;
 pub const TEXT_FAINT: u32 = 0xffff_ff70;
 pub const ACCENT: u32 = 0x004e_9cff;

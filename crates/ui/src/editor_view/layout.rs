@@ -9,10 +9,8 @@ use gpui_component::{Disableable, Icon, Sizable, TitleBar};
 
 use crate::EditorView;
 use crate::actions::{
-    AddTextTool, EditTool, FitPage, FitWidth, HandTool, HighlightTool, NextPage, NextSearchResult,
-    NoteTool, OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, Redo, SaveDocument,
-    SaveDocumentAs, SelectTool, ShapeTool, SignatureTool, StrikeoutTool, UnderlineTool, Undo,
-    ZoomIn, ZoomOut,
+    FitPage, FitWidth, NextPage, NextSearchResult, OpenDocument, PreviousPage,
+    PreviousSearchResult, Redo, SaveDocument, SaveDocumentAs, Undo, ZoomIn, ZoomOut,
 };
 use crate::icons::HugeIcon;
 use crate::theme::{
@@ -273,7 +271,6 @@ impl EditorView {
                     color: 0x004e_9cff,
                     tool: Tool::Select,
                 },
-                SelectTool,
                 cx,
             ))
             .child(self.tool_button(
@@ -284,7 +281,6 @@ impl EditorView {
                     color: 0x00c5_cbd3,
                     tool: Tool::Hand,
                 },
-                HandTool,
                 cx,
             ))
             .child(self.tool_button(
@@ -295,7 +291,6 @@ impl EditorView {
                     color: 0x00f5_b942,
                     tool: Tool::Note,
                 },
-                NoteTool,
                 cx,
             ))
             .child(self.tool_button(
@@ -306,7 +301,6 @@ impl EditorView {
                     color: 0x004e_9cff,
                     tool: Tool::Edit,
                 },
-                EditTool,
                 cx,
             ))
             .child(self.tool_button(
@@ -317,7 +311,6 @@ impl EditorView {
                     color: 0x00d5_d7dc,
                     tool: Tool::AddText,
                 },
-                AddTextTool,
                 cx,
             ))
             .child(self.tool_button(
@@ -328,7 +321,6 @@ impl EditorView {
                     color: 0x00ff_d84d,
                     tool: Tool::Highlight,
                 },
-                HighlightTool,
                 cx,
             ))
             .children(self.trailing_toolbar_items(cx))
@@ -344,7 +336,6 @@ impl EditorView {
                     color: 0x00b4_63ff,
                     tool: Tool::Underline,
                 },
-                UnderlineTool,
                 cx,
             )
             .into_any_element(),
@@ -356,7 +347,6 @@ impl EditorView {
                     color: 0x00ff_4f47,
                     tool: Tool::Strikeout,
                 },
-                StrikeoutTool,
                 cx,
             )
             .into_any_element(),
@@ -368,7 +358,6 @@ impl EditorView {
                     color: 0x00ff_3d94,
                     tool: Tool::Redact,
                 },
-                RedactTool,
                 cx,
             )
             .into_any_element(),
@@ -380,7 +369,6 @@ impl EditorView {
                     color: 0x00ca_61ff,
                     tool: Tool::Shape,
                 },
-                ShapeTool,
                 cx,
             )
             .into_any_element(),
@@ -392,19 +380,13 @@ impl EditorView {
                     color: 0x004e_9cff,
                     tool: Tool::Signature,
                 },
-                SignatureTool,
                 cx,
             )
             .into_any_element(),
         ]
     }
 
-    fn tool_button<A: gpui::Action>(
-        &self,
-        spec: ToolButtonSpec,
-        action: A,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn tool_button(&self, spec: ToolButtonSpec, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.tool == spec.tool;
         div()
             .id(spec.id)
@@ -423,8 +405,8 @@ impl EditorView {
             .when(!selected, |item| item.hover(|style| style.bg(tint(HOVER))))
             .child(Icon::new(spec.icon).size_5().text_color(solid(spec.color)))
             .child(spec.label)
-            .on_click(cx.listener(move |_, _, window, cx| {
-                window.dispatch_action(action.boxed_clone(), cx);
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.activate_tool_from_click(spec.tool, window, cx);
             }))
     }
 
@@ -483,7 +465,8 @@ impl EditorView {
                                         Input::new(&self.page_input)
                                             .appearance(false)
                                             .bordered(false)
-                                            .focus_bordered(false),
+                                            .focus_bordered(false)
+                                            .text_center(),
                                     ),
                             )
                             .child(

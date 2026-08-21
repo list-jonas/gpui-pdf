@@ -3,16 +3,16 @@ use gpui::{
     Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, canvas, div, img, px, rgb, rgba,
 };
+use gpui_component::Disableable;
 use gpui_component::button::Button;
 use gpui_component::input::Input;
-use gpui_component::{Disableable, Sizable, Size};
 use pdf_engine::{EditCommand, FormFieldKind, ShapeKind};
 
 use crate::EditorView;
 
 use super::geometry::{RENDER_SCALE, overlay_point, overlay_rect, ui_f32};
 use super::model::{DragState, OverlayRect, Tool};
-use crate::theme::{TEXT_FAINT, TEXT_MUTED, solid, tint};
+use crate::theme::{PAGE_TEXT, TEXT_FAINT, TEXT_MUTED, solid, tint};
 
 impl EditorView {
     pub(super) fn render_document(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
@@ -168,12 +168,13 @@ impl EditorView {
                             .child(
                                 Input::new(&item.input)
                                     .disabled(disabled)
-                                    .with_size(Size::Size(px(font_size / 0.875)))
                                     .size_full()
                                     .appearance(false)
                                     .bordered(false)
                                     .focus_bordered(false)
-                                    .text_color(rgb(0x0011_1827))
+                                    .px(px(2.0))
+                                    .py(px(0.0))
+                                    .text_color(solid(PAGE_TEXT))
                                     .text_size(px(font_size)),
                             ),
                     );
@@ -470,14 +471,13 @@ impl EditorView {
                         .h_full()
                         .child(
                             Input::new(&inline.input)
-                                .with_size(Size::Size(px(font_size / 0.875)))
                                 .h_full()
                                 .px(px(2.0 * scale))
-                                .py(px(scale))
+                                .py(px(0.0))
                                 .appearance(false)
                                 .bordered(false)
                                 .focus_bordered(false)
-                                .text_color(rgb(0x001f_2937))
+                                .text_color(solid(PAGE_TEXT))
                                 .text_size(px(font_size)),
                         ),
                 ),
@@ -542,13 +542,14 @@ impl EditorView {
                 )
                 .child(
                     Input::new(&note.input)
-                        .with_size(Size::Size(px(12.0 * scale / 0.875)))
                         .size_full()
                         .pl(px(14.0 * scale))
+                        .py(px(0.0))
                         .appearance(false)
                         .bordered(false)
                         .focus_bordered(false)
-                        .text_color(rgb(0x001f_2937)),
+                        .text_color(solid(PAGE_TEXT))
+                        .text_size(px(display_text_size(9.0, self.zoom))),
                 ),
         )
     }

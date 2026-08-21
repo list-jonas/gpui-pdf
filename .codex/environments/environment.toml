@@ -3,7 +3,7 @@ version = 1
 name = "gpui-pdf"
 
 [setup]
-script = ""
+script = "cd ."
 
 [[actions]]
 name = "Run"
@@ -14,3 +14,10 @@ command = "./target/release/gpui-pdf 'REDACTED-personal-path.pdf'"
 name = "Build"
 icon = "tool"
 command = "cargo build -p gpui-pdf --release --locked"
+
+[[actions]]
+name = "Build & Run"
+icon = "debug"
+command = '''
+cargo build -p gpui-pdf --release --locked
+./target/release/gpui-pdf 'REDACTED-personal-path.pdf''''
