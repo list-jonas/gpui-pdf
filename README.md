@@ -21,15 +21,24 @@ for Save As.
 | Open / Save / Save As | `Cmd+O` / `Cmd+S` / `Cmd+Shift+S` |
 | Undo / Redo | `Cmd+Z` / `Cmd+Shift+Z` |
 | Find / Next / Previous | `Cmd+F` / `Cmd+G` / `Cmd+Shift+G` |
-| Page back / forward | `←` / `→` |
-| First / Last / Go to page | `Home` / `End` / `Cmd+J` |
+| Scroll | `↑` / `↓`, `Space` / `Shift+Space`, `PageUp` / `PageDown` |
+| Document start / end | `Home` / `End` |
+| Page back / forward | `←` / `→` (or `Cmd+←` / `Cmd+→`) |
+| First / Last / Go to page | `Cmd+↑` / `Cmd+↓` / `Cmd+J` |
 | Zoom in / out | `Cmd+=` / `Cmd+-` |
 | Actual size / Fit page / Fit width | `Cmd+0` / `Cmd+1` / `Cmd+2` |
 | Copy / Select all text | `Cmd+C` / `Cmd+A` |
+| Delete selected annotation | `Delete` / `Backspace` |
+| Toggle thumbnails / properties | `Cmd+Ctrl+S` / `Cmd+Alt+0` |
 | Cancel current action | `Esc` |
 | Tools | `V` select, `H` hand, `E` edit, `U` highlight, `L` underline, `K` strike, `T` text, `N` comment, `S` sign, `G` shape, `R` redact |
 
-Single-letter tool shortcuts are ignored while a text field has focus.
+Editing and navigation keys are ignored while a text field has focus, so typing
+never scrolls the page or deletes an annotation. `Esc` always works: it leaves
+the field first, then clears the selection, then returns to the select tool.
+
+Dragging with the select, highlight, underline or strike tools continues across
+page boundaries, and `Cmd+A` selects the whole document.
 
 ## macOS app
 

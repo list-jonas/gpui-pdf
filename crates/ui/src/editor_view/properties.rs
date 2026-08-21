@@ -119,6 +119,14 @@ impl EditorView {
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("Selected text"),
                     )
+                    .when_some(self.selection_summary(), |panel, summary| {
+                        panel.child(
+                            div()
+                                .text_xs()
+                                .text_color(tint(TEXT_MUTED))
+                                .child(summary),
+                        )
+                    })
                     .child(
                         div()
                             .p_3()

@@ -1219,6 +1219,18 @@ impl EditorView {
         !self.selection.is_empty()
     }
 
+    /// Describes the size and page span of the current selection.
+    pub(super) fn selection_summary(&self) -> Option<String> {
+        let first = self.selection.first()?.page_index;
+        let last = self.selection.last()?.page_index;
+        let characters = self.selected_text.chars().count();
+        Some(if first == last {
+            format!("{characters} characters · page {}", first + 1)
+        } else {
+            format!("{characters} characters · pages {}–{}", first + 1, last + 1)
+        })
+    }
+
     /// Applies a markup annotation to the selection, emitting one edit per
     /// page so a selection spanning pages is annotated on all of them.
     pub(super) fn markup_selection(
