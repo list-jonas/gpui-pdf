@@ -1640,4 +1640,36 @@ mod tests {
             Some(0)
         );
     }
+
+    /// Pages whose text has not been extracted yet must not swallow a
+    /// selection that continues onto a later page.
+    #[test]
+    fn selection_skips_pages_without_extracted_text() {
+        let pages = vec![
+            page(0, &[("one", 0.0)]),
+            page(1, &[]),
+            page(2, &[("three", 0.0)]),
+        ];
+
+        let runs = text_selection(&pages, edge(0, 0), edge(2, 0));
+
+        assert_eq!(
+            runs.iter().map(|run| run.text.as_str()).collect::<Vec<_>>(),
+            ["one", "three"]
+        );
+    }
+
+    /// A selection confined to one page must not pull in its neighbours.
+    #[test]
+    fn single_page_selection_stays_on_its_page() {
+        let pages = vec![
+            page(0, &[("one", 0.0), ("two", 50.0)]),
+            page(1, &[("three", 0.0)]),
+        ];
+
+        let runs = text_selection(&pages, edge(0, 0), edge(0, 1));
+
+        assert_eq!(runs.len(), 2);
+        assert!(runs.iter().all(|run| run.page_index == 0));
+    }
 }
