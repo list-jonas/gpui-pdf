@@ -4,6 +4,7 @@ use gpui::{
 };
 use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::input::Input;
+use gpui_component::menu::ContextMenuExt;
 use gpui_component::scroll::ScrollableElement;
 use gpui_component::{Disableable, Icon, Sizable, TitleBar};
 
@@ -55,11 +56,20 @@ impl EditorView {
                     .pr_2()
                     .child(
                         div()
+                            .id("document-title")
                             .min_w_0()
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .truncate()
-                            .child(title),
+                            .child(title)
+                            .on_mouse_down(
+                                MouseButton::Right,
+                                cx.listener(|view, event, _, _| view.clear_menu_target(event)),
+                            )
+                            .context_menu({
+                                let view = cx.entity();
+                                move |menu, _, cx| view.read(cx).document_menu(menu)
+                            }),
                     )
                     .when(!self.history.is_empty(), |bar| {
                         bar.child(
@@ -254,6 +264,7 @@ impl EditorView {
 
     fn render_toolbar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         div()
+            .id("toolbar")
             .h(px(72.0))
             .flex()
             .items_center()
@@ -324,6 +335,14 @@ impl EditorView {
                 cx,
             ))
             .children(self.trailing_toolbar_items(cx))
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|view, event, _, _| view.clear_menu_target(event)),
+            )
+            .context_menu({
+                let view = cx.entity();
+                move |menu, _, cx| view.read(cx).tools_menu(menu)
+            })
     }
 
     fn trailing_toolbar_items(&self, cx: &mut Context<Self>) -> Vec<gpui::AnyElement> {
@@ -549,12 +568,13 @@ impl EditorView {
 
     /// Persistent status bar. Transient messages replace the summary briefly
     /// and errors stay visually distinct.
-    fn render_status_bar(&self) -> impl IntoElement {
+    fn render_status_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let color = match self.severity {
             Severity::Error => solid(DANGER),
             Severity::Info => tint(TEXT_MUTED),
         };
         div()
+            .id("status-bar")
             .h(px(26.0))
             .flex()
             .flex_shrink_0()
@@ -580,6 +600,14 @@ impl EditorView {
             .when_some(self.detail.clone(), |bar, detail| {
                 bar.child(div().text_color(tint(TEXT_MUTED)).child(detail))
             })
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|view, event, _, _| view.clear_menu_target(event)),
+            )
+            .context_menu({
+                let view = cx.entity();
+                move |menu, _, cx| view.read(cx).document_menu(menu)
+            })
     }
 
     fn render_left_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -594,65 +622,12 @@ impl EditorView {
             .track_scroll(&self.thumbnail_scroll);
 
         for (page_index, page) in self.pages.iter().enumerate() {
-            let current = page_index == self.page_index;
-            let ratio = page.image_size.1 / page.image_size.0.max(1.0);
-            let mut preview = div()
-                .w(px(104.0))
-                .h(px(104.0 * ratio))
-                .bg(solid(0x00ff_ffff))
-                .border_2()
-                .border_color(if current {
-                    solid(ACCENT)
-                } else {
-                    tint(BORDER_STRONG)
-                })
-                .rounded_sm()
-                .overflow_hidden()
-                .shadow_sm();
-            if let Some(image) = page.image.clone() {
-                preview = preview.child(img(image).size_full());
-            } else {
-                preview = preview.child(
-                    div()
-                        .size_full()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .bg(solid(0x00e8_eaee)),
-                );
-            }
-            thumbnails = thumbnails.child(
-                div()
-                    .id(("page-thumbnail", page_index))
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_1()
-                    .p_1()
-                    .rounded_md()
-                    .cursor_pointer()
-                    .when(current, |item| item.bg(tint(ACTIVE)))
-                    .when(!current, |item| item.hover(|style| style.bg(tint(HOVER))))
-                    .child(preview)
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(if current {
-                                solid(TEXT)
-                            } else {
-                                tint(TEXT_MUTED)
-                            })
-                            .child(format!("{}", page_index + 1)),
-                    )
-                    .on_click(cx.listener(move |view, _, window, cx| {
-                        view.jump_to_page(page_index, cx);
-                        view.sync_page_input(window, cx);
-                    })),
-            );
+            thumbnails = thumbnails.child(self.render_thumbnail(page_index, page, cx));
         }
 
         div()
             .w(px(148.0))
+            .id("thumbnail-panel")
             .flex_shrink_0()
             .h_full()
             .flex()
@@ -671,6 +646,88 @@ impl EditorView {
                     .child("PAGES"),
             )
             .child(thumbnails.overflow_y_scrollbar())
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|view, event, _, _| view.clear_menu_target(event)),
+            )
+            .context_menu({
+                let view = cx.entity();
+                move |menu, _, cx| view.read(cx).view_menu(menu)
+            })
+    }
+
+    fn render_thumbnail(
+        &self,
+        page_index: usize,
+        page: &super::document_page::DocumentPage,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let current = page_index == self.page_index;
+        let ratio = page.image_size.1 / page.image_size.0.max(1.0);
+        let mut preview = div()
+            .w(px(104.0))
+            .h(px(104.0 * ratio))
+            .bg(solid(0x00ff_ffff))
+            .border_2()
+            .border_color(if current {
+                solid(ACCENT)
+            } else {
+                tint(BORDER_STRONG)
+            })
+            .rounded_sm()
+            .overflow_hidden()
+            .shadow_sm();
+        if let Some(image) = page.image.clone() {
+            preview = preview.child(img(image).size_full());
+        } else {
+            preview = preview.child(
+                div()
+                    .size_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .bg(solid(0x00e8_eaee)),
+            );
+        }
+        div()
+            .id(("page-thumbnail", page_index))
+            .flex()
+            .flex_col()
+            .items_center()
+            .gap_1()
+            .p_1()
+            .rounded_md()
+            .cursor_pointer()
+            .when(current, |item| item.bg(tint(ACTIVE)))
+            .when(!current, |item| item.hover(|style| style.bg(tint(HOVER))))
+            .child(preview)
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(if current {
+                        solid(TEXT)
+                    } else {
+                        tint(TEXT_MUTED)
+                    })
+                    .child(format!("{}", page_index + 1)),
+            )
+            .on_click(cx.listener(move |view, _, window, cx| {
+                view.jump_to_page(page_index, cx);
+                view.sync_page_input(window, cx);
+            }))
+            // Right-clicking a thumbnail makes it the current page, so the page
+            // commands in its menu act on what was clicked.
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(move |view, _, window, cx| {
+                    view.jump_to_page(page_index, cx);
+                    view.sync_page_input(window, cx);
+                }),
+            )
+            .context_menu({
+                let view = cx.entity();
+                move |menu, _, cx| view.read(cx).thumbnail_menu(page_index, menu)
+            })
     }
 }
 
@@ -725,6 +782,21 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::actual_size))
             .on_action(cx.listener(Self::fit_page))
             .on_action(cx.listener(Self::fit_width))
+            .on_action(cx.listener(Self::highlight_selection))
+            .on_action(cx.listener(Self::underline_selection))
+            .on_action(cx.listener(Self::strikeout_selection))
+            .on_action(cx.listener(Self::redact_selection))
+            .on_action(cx.listener(Self::find_selection))
+            .on_action(cx.listener(Self::deselect))
+            .on_action(cx.listener(Self::copy_page_text))
+            .on_action(cx.listener(Self::paste_text))
+            .on_action(cx.listener(Self::add_text_here))
+            .on_action(cx.listener(Self::add_note_here))
+            .on_action(cx.listener(Self::edit_annotation))
+            .on_action(cx.listener(Self::delete_annotation))
+            .on_action(cx.listener(Self::clear_edits))
+            .on_action(cx.listener(Self::reveal_in_finder))
+            .on_action(cx.listener(Self::copy_file_path))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::window_mouse_up))
             .flex()
             .flex_col()
@@ -749,6 +821,6 @@ impl Render for EditorView {
                         row.child(self.render_properties(cx))
                     }),
             )
-            .child(self.render_status_bar())
+            .child(self.render_status_bar(cx))
     }
 }

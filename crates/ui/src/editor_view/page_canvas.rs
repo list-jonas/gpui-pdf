@@ -6,6 +6,7 @@ use gpui::{
 use gpui_component::Disableable;
 use gpui_component::button::Button;
 use gpui_component::input::Input;
+use gpui_component::menu::ContextMenuExt;
 use pdf_engine::{EditCommand, FormFieldKind, ShapeKind};
 
 use crate::EditorView;
@@ -116,7 +117,19 @@ impl EditorView {
                     }),
                 )
                 .on_mouse_move(cx.listener(Self::page_mouse_move))
-                .on_mouse_up(MouseButton::Left, cx.listener(Self::page_mouse_up)),
+                .on_mouse_up(MouseButton::Left, cx.listener(Self::page_mouse_up))
+                // The menu is built one frame after the click, so the target
+                // has to be recorded during the click itself.
+                .on_mouse_down(
+                    MouseButton::Right,
+                    cx.listener(move |view, event, _, cx| {
+                        view.prepare_page_menu(page_index, event, cx);
+                    }),
+                )
+                .context_menu({
+                    let view = cx.entity();
+                    move |menu, _, cx| view.read(cx).page_menu(menu)
+                }),
         );
         element = self.add_search_overlays(element, page_index);
         element = self.add_edit_overlays(element, page_index, cx);

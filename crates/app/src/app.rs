@@ -6,13 +6,15 @@ use gpui::{
 };
 use gpui_component::Root;
 use ui::{
-    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, EditTool, EditorRequest,
-    EditorView, FirstPage, FitPage, FitWidth, GoToPage, HandTool, HighlightTool, LastPage,
-    NextPage, NextSearchResult, NoteTool, OpenDocument, PreviousPage, PreviousSearchResult,
-    RedactTool, Redo, SaveDocument, SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp,
+    ActualSize, AddNoteHere, AddTextHere, AddTextTool, Cancel, ClearEdits, CopyFilePath,
+    CopyPageText, CopySelection, DeleteAnnotation, DeleteSelection, Deselect, EditAnnotation,
+    EditTool, EditorRequest, EditorView, FindSelection, FirstPage, FitPage, FitWidth, GoToPage,
+    HandTool, HighlightSelection, HighlightTool, LastPage, NextPage, NextSearchResult, NoteTool,
+    OpenDocument, PasteText, PreviousPage, PreviousSearchResult, RedactSelection, RedactTool, Redo,
+    RevealInFinder, SaveDocument, SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp,
     ScrollToBottom, ScrollToTop, ScrollUp, Search, SelectAllText, SelectTool, ShapeTool,
-    SignatureTool, StrikeoutTool, TogglePropertiesPanel, ToggleSidebar, UnderlineTool, Undo,
-    ZoomIn, ZoomOut,
+    SignatureTool, StrikeoutSelection, StrikeoutTool, TogglePropertiesPanel, ToggleSidebar,
+    UnderlineSelection, UnderlineTool, Undo, ZoomIn, ZoomOut,
 };
 
 use crate::session;
@@ -86,6 +88,9 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::action("Save", SaveDocument),
                 MenuItem::action("Save As…", SaveDocumentAs),
+                MenuItem::separator(),
+                MenuItem::action("Reveal in Finder", RevealInFinder),
+                MenuItem::action("Copy File Path", CopyFilePath),
             ],
         },
         Menu {
@@ -95,12 +100,19 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Redo", Redo),
                 MenuItem::separator(),
                 MenuItem::action("Copy", CopySelection),
+                MenuItem::action("Copy Page Text", CopyPageText),
+                MenuItem::action("Paste as Text", PasteText),
+                MenuItem::separator(),
                 MenuItem::action("Select All Text", SelectAllText),
+                MenuItem::action("Deselect", Deselect),
                 MenuItem::action("Delete Selection", DeleteSelection),
+                MenuItem::separator(),
+                MenuItem::action("Discard Pending Edits", ClearEdits),
                 MenuItem::separator(),
                 MenuItem::action("Find…", Search),
                 MenuItem::action("Find Next", NextSearchResult),
                 MenuItem::action("Find Previous", PreviousSearchResult),
+                MenuItem::action("Search for Selection", FindSelection),
             ],
         },
         Menu {
@@ -146,6 +158,21 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Redact", RedactTool),
             ],
         },
+        Menu {
+            name: "Annotate".into(),
+            items: vec![
+                MenuItem::action("Highlight Selection", HighlightSelection),
+                MenuItem::action("Underline Selection", UnderlineSelection),
+                MenuItem::action("Strike Out Selection", StrikeoutSelection),
+                MenuItem::action("Redact Selection", RedactSelection),
+                MenuItem::separator(),
+                MenuItem::action("Add Text Here", AddTextHere),
+                MenuItem::action("Add Comment Here", AddNoteHere),
+                MenuItem::separator(),
+                MenuItem::action("Edit Annotation", EditAnnotation),
+                MenuItem::action("Delete Annotation", DeleteAnnotation),
+            ],
+        },
     ]
 }
 
@@ -161,7 +188,10 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-z", Undo, EDITOR),
         KeyBinding::new("cmd-shift-z", Redo, EDITOR),
         KeyBinding::new("cmd-c", CopySelection, CANVAS),
+        KeyBinding::new("cmd-shift-c", CopyPageText, CANVAS),
+        KeyBinding::new("cmd-v", PasteText, CANVAS),
         KeyBinding::new("cmd-a", SelectAllText, CANVAS),
+        KeyBinding::new("cmd-shift-a", Deselect, CANVAS),
         KeyBinding::new("escape", Cancel, EDITOR),
         // Text inputs bind Escape themselves at a deeper context, so an
         // input-scoped binding is needed for Escape to leave the field.
@@ -171,6 +201,14 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-f", Search, EDITOR),
         KeyBinding::new("cmd-g", NextSearchResult, EDITOR),
         KeyBinding::new("cmd-shift-g", PreviousSearchResult, EDITOR),
+        KeyBinding::new("cmd-e", FindSelection, CANVAS),
+        // Markup shortcuts mirror Acrobat: Cmd+Ctrl plus the tool letter.
+        KeyBinding::new("cmd-ctrl-h", HighlightSelection, CANVAS),
+        KeyBinding::new("cmd-ctrl-u", UnderlineSelection, CANVAS),
+        KeyBinding::new("cmd-ctrl-k", StrikeoutSelection, CANVAS),
+        KeyBinding::new("cmd-ctrl-r", RedactSelection, CANVAS),
+        KeyBinding::new("enter", EditAnnotation, CANVAS),
+        KeyBinding::new("cmd-shift-r", RevealInFinder, EDITOR),
         // Arrows scroll like any document reader; Cmd jumps whole pages.
         KeyBinding::new("up", ScrollUp, CANVAS),
         KeyBinding::new("down", ScrollDown, CANVAS),
@@ -252,11 +290,32 @@ mod tests {
             ("cmd-up", "FirstPage"),
             ("left", "PreviousPage"),
             ("escape", "Cancel"),
+            ("cmd-shift-c", "CopyPageText"),
+            ("cmd-v", "PasteText"),
+            ("cmd-shift-a", "Deselect"),
+            ("cmd-e", "FindSelection"),
+            ("cmd-ctrl-h", "HighlightSelection"),
+            ("cmd-ctrl-u", "UnderlineSelection"),
+            ("cmd-ctrl-k", "StrikeoutSelection"),
+            ("cmd-ctrl-r", "RedactSelection"),
         ] {
             let resolved = resolves(keystroke, &["Root", "PdfEditor"]);
             assert!(
                 resolved.iter().any(|name| name.ends_with(action)),
                 "{keystroke} did not resolve to {action}: {resolved:?}"
+            );
+        }
+    }
+
+    /// Context menu items render the shortcut bound to their action, so every
+    /// menu command that claims one must actually resolve to it.
+    #[test]
+    fn context_menu_commands_keep_their_shortcuts_out_of_text_inputs() {
+        for keystroke in ["cmd-shift-c", "cmd-v", "cmd-shift-a", "cmd-e", "enter"] {
+            let resolved = resolves(keystroke, &["Root", "PdfEditor", "Input"]);
+            assert!(
+                resolved.is_empty(),
+                "{keystroke} leaked into input: {resolved:?}"
             );
         }
     }

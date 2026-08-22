@@ -1,8 +1,9 @@
 use gpui::{
-    Context, FontWeight, InteractiveElement, IntoElement, ParentElement,
+    Context, FontWeight, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, div, prelude::FluentBuilder, px,
 };
 use gpui_component::button::{Button, ButtonVariants};
+use gpui_component::menu::ContextMenuExt;
 use gpui_component::scroll::ScrollableElement;
 
 use super::model::{Tool, shape_label};
@@ -17,15 +18,11 @@ impl EditorView {
     pub(super) fn render_properties(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let panel = div()
             .w_72()
-            .flex_shrink_0()
             .h_full()
             .p_4()
             .flex()
             .flex_col()
             .gap_4()
-            .bg(tint(PANEL_TINT))
-            .border_l_1()
-            .border_color(tint(BORDER))
             .child(
                 div()
                     .flex()
@@ -48,7 +45,8 @@ impl EditorView {
                     ),
             );
 
-        self.add_tool_properties(panel, cx)
+        let content = self
+            .add_tool_properties(panel, cx)
             .child(self.render_edit_list(cx))
             .when_some(self.detail.clone(), |panel, detail| {
                 panel.child(
@@ -61,7 +59,26 @@ impl EditorView {
                         .child(detail),
                 )
             })
-            .overflow_y_scrollbar()
+            .overflow_y_scrollbar();
+
+        // The scrollbar wrapper is not a parent element, so the menu lives on
+        // an outer container that also carries the panel's chrome.
+        div()
+            .id("properties-panel")
+            .flex_shrink_0()
+            .h_full()
+            .bg(tint(PANEL_TINT))
+            .border_l_1()
+            .border_color(tint(BORDER))
+            .child(content)
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener(|view, event, _, _| view.clear_menu_target(event)),
+            )
+            .context_menu({
+                let view = cx.entity();
+                move |menu, _, cx| view.read(cx).view_menu(menu)
+            })
     }
 
     /// Lists queued edits so users can see and remove pending changes.
@@ -82,6 +99,7 @@ impl EditorView {
         for (index, edit) in self.history.iter().enumerate().take(12) {
             list = list.child(
                 div()
+                    .id(("edit-row", index))
                     .flex()
                     .items_center()
                     .gap_2()
@@ -96,11 +114,22 @@ impl EditorView {
                             .label("✕")
                             .ghost()
                             .cursor_pointer()
+                            .tooltip("Remove this edit")
                             .on_click(cx.listener(move |view, _, window, cx| {
                                 view.history.remove(index);
                                 view.mark_edited(window, cx);
                             })),
-                    ),
+                    )
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(move |view, event, _, cx| {
+                            view.prepare_edit_row_menu(index, event, cx);
+                        }),
+                    )
+                    .context_menu({
+                        let view = cx.entity();
+                        move |menu, _, cx| view.read(cx).edit_row_menu(index, menu)
+                    }),
             );
         }
         list.min_h(px(0.0))

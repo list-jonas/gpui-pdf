@@ -11,7 +11,7 @@ cask "gpui-pdf" do
   desc "Local-first PDF reader and editor drawn with GPUI"
   homepage "https://github.com/list-jonas/gpui-pdf"
 
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "GPUI PDF.app"
 

@@ -54,6 +54,14 @@ impl Tool {
             Self::Redact => "R",
         }
     }
+
+    pub const fn is_select(self) -> bool {
+        matches!(self, Self::Select)
+    }
+
+    pub const fn is_hand(self) -> bool {
+        matches!(self, Self::Hand)
+    }
 }
 
 pub enum DragState {
