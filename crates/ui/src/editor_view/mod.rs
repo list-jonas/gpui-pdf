@@ -1,8 +1,6 @@
 mod document_io;
 mod document_page;
 mod edits;
-mod commands;
-mod context_menus;
 mod geometry;
 mod gestures;
 mod history;
@@ -33,7 +31,6 @@ use crate::{EditorRequest, EditorUpdate};
 use self::document_io::file_name;
 use self::document_page::DocumentPage;
 use self::history::EditHistory;
-use self::commands::MenuTarget;
 use self::model::{
     DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, SelectedRun, Tool,
 };
@@ -100,9 +97,6 @@ pub struct EditorView {
     thumbnail_scroll: ScrollHandle,
     panels: PanelVisibility,
     status_reset: Option<Task<()>>,
-    /// Page position the last context menu was opened at, so its commands act
-    /// where the user right-clicked rather than on the current page origin.
-    menu_target: Option<MenuTarget>,
 }
 
 impl EditorView {
@@ -203,7 +197,6 @@ impl EditorView {
             thumbnail_scroll: ScrollHandle::new(),
             panels: PanelVisibility::default(),
             status_reset: None,
-            menu_target: None,
         }
     }
 
@@ -306,7 +299,6 @@ impl EditorView {
         self.pages = pages.into_iter().map(DocumentPage::placeholder).collect();
         self.loaded_pages = 0;
         self.busy = true;
-        self.menu_target = None;
         self.severity = Severity::Info;
         self.status = format!("Loading {} pages…", document.page_count).into();
         self.detail = None;

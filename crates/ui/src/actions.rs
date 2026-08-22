@@ -43,21 +43,6 @@ actions!(
         TogglePropertiesPanel,
         Search,
         NextSearchResult,
-        PreviousSearchResult,
-        HighlightSelection,
-        UnderlineSelection,
-        StrikeoutSelection,
-        RedactSelection,
-        FindSelection,
-        Deselect,
-        CopyPageText,
-        PasteText,
-        AddTextHere,
-        AddNoteHere,
-        EditAnnotation,
-        DeleteAnnotation,
-        ClearEdits,
-        RevealInFinder,
-        CopyFilePath
+        PreviousSearchResult
     ]
 );

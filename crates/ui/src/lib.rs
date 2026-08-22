@@ -7,15 +7,12 @@ mod protocol;
 mod theme;
 
 pub use actions::{
-    ActualSize, AddNoteHere, AddTextHere, AddTextTool, Cancel, ClearEdits, CopyFilePath,
-    CopyPageText, CopySelection, DeleteAnnotation, DeleteSelection, Deselect, EditAnnotation,
-    EditTool, FindSelection, FirstPage, FitPage, FitWidth, GoToPage, HandTool, HighlightSelection,
-    HighlightTool, LastPage, NextPage, NextSearchResult, NoteTool, OpenDocument, PasteText,
-    PreviousPage, PreviousSearchResult, RedactSelection, RedactTool, Redo, RevealInFinder,
-    SaveDocument, SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp, ScrollToBottom,
-    ScrollToTop, ScrollUp, Search, SelectAllText, SelectTool, ShapeTool, SignatureTool,
-    StrikeoutSelection, StrikeoutTool, TogglePropertiesPanel, ToggleSidebar, UnderlineSelection,
-    UnderlineTool, Undo, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, EditTool, FirstPage, FitPage,
+    FitWidth, GoToPage, HandTool, HighlightTool, LastPage, NextPage, NextSearchResult, NoteTool,
+    OpenDocument, PreviousPage, PreviousSearchResult, RedactTool, Redo, SaveDocument,
+    SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop,
+    ScrollUp, Search, SelectAllText, SelectTool, ShapeTool, SignatureTool, StrikeoutTool,
+    TogglePropertiesPanel, ToggleSidebar, UnderlineTool, Undo, ZoomIn, ZoomOut,
 };
 pub use editor_view::EditorView;
 pub use icons::Assets;

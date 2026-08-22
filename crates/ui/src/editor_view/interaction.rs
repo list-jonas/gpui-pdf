@@ -666,14 +666,32 @@ impl EditorView {
             return;
         };
         if matches!(self.tool, Tool::AddText | Tool::Signature) {
+            self.materialize_inline_text(cx);
             let placeholder = if self.tool == Tool::Signature {
                 "Type signature"
             } else {
                 "Type on page"
             };
-            self.start_inline_text(page_index, point, placeholder, "", window, cx);
+            let text = inline_text_input(placeholder, "", window, cx);
+            self.inline_text = Some(InlineText {
+                page_index,
+                point,
+                input: text.clone(),
+            });
+            window.defer(cx, move |window, cx| {
+                text.update(cx, |state, cx| state.focus(window, cx));
+            });
         } else if self.tool == Tool::Note {
-            self.start_inline_note(page_index, point, "", window, cx);
+            self.materialize_inline_note(cx);
+            let note = inline_text_input("Write comment", "", window, cx);
+            self.inline_note = Some(InlineNote {
+                page_index,
+                point,
+                input: note.clone(),
+            });
+            window.defer(cx, move |window, cx| {
+                note.update(cx, |state, cx| state.focus(window, cx));
+            });
         } else {
             self.drag = Some(DragState::Region {
                 page_index,
@@ -682,51 +700,6 @@ impl EditorView {
                 current_page: page_index,
             });
         }
-        cx.notify();
-    }
-
-    /// Opens a focused on-page text draft, committing any draft already open.
-    pub(super) fn start_inline_text(
-        &mut self,
-        page_index: usize,
-        point: document_core::PdfPoint,
-        placeholder: &str,
-        value: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.materialize_inline_edits(cx);
-        let input = inline_text_input(placeholder, value, window, cx);
-        self.inline_text = Some(InlineText {
-            page_index,
-            point,
-            input: input.clone(),
-        });
-        window.defer(cx, move |window, cx| {
-            input.update(cx, |state, cx| state.focus(window, cx));
-        });
-        cx.notify();
-    }
-
-    /// Opens a focused on-page comment draft, committing any draft already open.
-    pub(super) fn start_inline_note(
-        &mut self,
-        page_index: usize,
-        point: document_core::PdfPoint,
-        value: &str,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.materialize_inline_edits(cx);
-        let input = inline_text_input("Write comment", value, window, cx);
-        self.inline_note = Some(InlineNote {
-            page_index,
-            point,
-            input: input.clone(),
-        });
-        window.defer(cx, move |window, cx| {
-            input.update(cx, |state, cx| state.focus(window, cx));
-        });
         cx.notify();
     }
 
@@ -741,15 +714,16 @@ impl EditorView {
             return;
         };
         self.history.remove(edit_index);
+        let input = inline_text_input("Type on page", &stamp.text, window, cx);
+        self.inline_text = Some(InlineText {
+            page_index: stamp.page_index,
+            point: document_core::PdfPoint::new(stamp.x, stamp.y),
+            input: input.clone(),
+        });
+        window.defer(cx, move |window, cx| {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        });
         self.tool = Tool::AddText;
-        self.start_inline_text(
-            stamp.page_index,
-            document_core::PdfPoint::new(stamp.x, stamp.y),
-            "Type on page",
-            &stamp.text,
-            window,
-            cx,
-        );
         cx.stop_propagation();
         cx.notify();
     }
@@ -771,14 +745,16 @@ impl EditorView {
             return;
         };
         self.history.remove(edit_index);
-        self.tool = Tool::Note;
-        self.start_inline_note(
+        let input = inline_text_input("Write comment", &contents, window, cx);
+        self.inline_note = Some(InlineNote {
             page_index,
-            document_core::PdfPoint::new(x, y),
-            &contents,
-            window,
-            cx,
-        );
+            point: document_core::PdfPoint::new(x, y),
+            input: input.clone(),
+        });
+        window.defer(cx, move |window, cx| {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        });
+        self.tool = Tool::Note;
         cx.stop_propagation();
         cx.notify();
     }
@@ -1426,7 +1402,7 @@ impl EditorView {
         }
     }
 
-    pub(super) fn pdf_point(
+    fn pdf_point(
         &self,
         page_index: usize,
         position: gpui::Point<gpui::Pixels>,
@@ -1581,7 +1557,7 @@ fn point_distance(rect: document_core::PdfRect, point: document_core::PdfPoint) 
 
 /// PDF text runs carry no spaces, so word and line breaks are reconstructed
 /// from the geometry of neighbouring runs.
-pub(super) fn join_selection(selection: &[SelectedRun]) -> String {
+fn join_selection(selection: &[SelectedRun]) -> String {
     let mut text = String::new();
     let mut previous: Option<&SelectedRun> = None;
     for run in selection {
