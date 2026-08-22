@@ -66,7 +66,7 @@ impl EditorView {
                                 MouseButton::Right,
                                 cx.listener(|view, event, _, _| view.clear_menu_target(event)),
                             )
-                            .context_menu({
+                            .context_menu_with_id("title-menu", {
                                 let view = cx.entity();
                                 move |menu, _, cx| view.read(cx).document_menu(menu)
                             }),
@@ -618,7 +618,7 @@ impl EditorView {
                 MouseButton::Right,
                 cx.listener(|view, event, _, _| view.clear_menu_target(event)),
             )
-            .context_menu({
+            .context_menu_with_id("status-menu", {
                 let view = cx.entity();
                 move |menu, _, cx| view.read(cx).document_menu(menu)
             })
@@ -664,7 +664,7 @@ impl EditorView {
                 MouseButton::Right,
                 cx.listener(|view, event, _, _| view.clear_menu_target(event)),
             )
-            .context_menu({
+            .context_menu_with_id("sidebar-menu", {
                 let view = cx.entity();
                 move |menu, _, cx| view.read(cx).view_menu(menu)
             })
@@ -738,7 +738,8 @@ impl EditorView {
                     view.sync_page_input(window, cx);
                 }),
             )
-            .context_menu({
+            // Unique per thumbnail, for the same reason as the page menu.
+            .context_menu_with_id(("thumbnail-menu", page_index), {
                 let view = cx.entity();
                 move |menu, _, cx| view.read(cx).thumbnail_menu(page_index, menu)
             })

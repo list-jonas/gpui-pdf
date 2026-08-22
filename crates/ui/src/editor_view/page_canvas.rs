@@ -126,7 +126,9 @@ impl EditorView {
                         view.prepare_page_menu(page_index, event, cx);
                     }),
                 )
-                .context_menu({
+                // Unique per page: a shared ID would make every page open its
+                // menu at once and stack overlays that eat all input.
+                .context_menu_with_id(("page-menu", page_index), {
                     let view = cx.entity();
                     move |menu, _, cx| view.read(cx).page_menu(menu)
                 }),

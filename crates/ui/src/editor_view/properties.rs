@@ -68,7 +68,7 @@ impl EditorView {
                 MouseButton::Right,
                 cx.listener(|view, event, _, _| view.clear_menu_target(event)),
             )
-            .context_menu({
+            .context_menu_with_id("properties-menu", {
                 let view = cx.entity();
                 move |menu, _, cx| view.read(cx).view_menu(menu)
             })
@@ -119,7 +119,7 @@ impl EditorView {
                             view.prepare_edit_row_menu(index, event, cx);
                         }),
                     )
-                    .context_menu({
+                    .context_menu_with_id(("edit-row-menu", index), {
                         let view = cx.entity();
                         move |menu, _, cx| view.read(cx).edit_row_menu(index, menu)
                     }),

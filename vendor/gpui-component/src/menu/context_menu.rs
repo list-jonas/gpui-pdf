@@ -21,6 +21,21 @@ pub trait ContextMenuExt: ParentElement + Styled {
     ) -> ContextMenu<Self> {
         ContextMenu::new("context-menu", self).menu(f)
     }
+
+    /// Add a context menu to the element, with an explicit element ID.
+    ///
+    /// The menu keeps its open state in element state keyed by this ID plus
+    /// the IDs of its ancestors. Repeated elements (list rows, document
+    /// pages) must therefore pass a unique ID, otherwise every copy shares a
+    /// single state, opens at the same time and stacks its full-window
+    /// overlay over the others, which swallows hover and click events.
+    fn context_menu_with_id(
+        self,
+        id: impl Into<ElementId>,
+        f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) -> ContextMenu<Self> {
+        ContextMenu::new(id, self).menu(f)
+    }
 }
 
 impl<E: ParentElement + Styled> ContextMenuExt for E {}
