@@ -175,12 +175,18 @@ pub trait StyledExt: Styled + Sized {
     /// Set as Popover style
     #[inline]
     fn popover_style(self, cx: &App) -> Self {
-        self.bg(cx.theme().popover)
+        let styled = self
+            .bg(cx.theme().popover)
             .text_color(cx.theme().popover_foreground)
             .border_1()
             .border_color(cx.theme().border)
-            .shadow_lg()
-            .rounded(cx.theme().radius)
+            .rounded(cx.theme().radius);
+
+        if cx.theme().shadow {
+            styled.shadow_lg()
+        } else {
+            styled
+        }
     }
 
     /// Set corner radii for the element.
