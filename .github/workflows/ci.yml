@@ -35,5 +35,5 @@ jobs:
         run: ./scripts/verify.sh
 
       - name: Package app bundle
-        if: ${{ github.event_name == 'pull_request' }}
+        if: ${{ github.event_name != 'workflow_call' }}
         run: ./scripts/package-macos.sh
