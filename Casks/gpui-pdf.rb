@@ -16,10 +16,10 @@ cask "gpui-pdf" do
   app "GPUI PDF.app"
 
   caveats <<~EOS
-    The app is ad-hoc signed, not Developer ID signed or notarized.
-    Install it with --no-quarantine, or Gatekeeper will refuse to open it:
+    The app is ad-hoc signed, not Developer ID signed or notarized. If macOS
+    refuses to open it, clear the quarantine flag and try again:
 
-      brew install --cask --no-quarantine list-jonas/gpui-pdf/gpui-pdf
+      xattr -dr com.apple.quarantine "/Applications/GPUI PDF.app"
   EOS
 
   zap trash: [

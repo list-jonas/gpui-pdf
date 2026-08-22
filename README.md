@@ -42,15 +42,19 @@ app bundle tarball for Apple Silicon and Intel.
 ```sh
 brew tap list-jonas/gpui-pdf https://github.com/list-jonas/gpui-pdf
 brew trust --tap list-jonas/gpui-pdf
-brew install --cask --no-quarantine list-jonas/gpui-pdf/gpui-pdf
+brew install --cask list-jonas/gpui-pdf/gpui-pdf
 ```
 
 `brew trust` is required because Homebrew refuses to load formulae and casks
 from third-party taps until you say you trust them. Revoke it later with
 `brew untrust --tap list-jonas/gpui-pdf`.
 
-`--no-quarantine` is required because the released bundle is ad-hoc signed, not
-Developer ID signed or notarized. Without it Gatekeeper refuses to open the app.
+The released bundle is ad-hoc signed, not Developer ID signed or notarized, so
+macOS may refuse to open it. Clear the quarantine flag if that happens:
+
+```sh
+xattr -dr com.apple.quarantine "/Applications/GPUI PDF.app"
+```
 
 Upgrade and removal work the usual way:
 
