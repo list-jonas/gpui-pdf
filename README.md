@@ -33,6 +33,32 @@ Where the engine falls short â€” form limits, redaction scope, encrypted files â
 the gaps are listed in [`docs/pdf-compatibility.md`](docs/pdf-compatibility.md).
 Read that page before trusting a redaction with anything sensitive.
 
+## Install with Homebrew
+
+This repository is its own Homebrew tap: the cask lives in
+[`Casks/gpui-pdf.rb`](Casks/gpui-pdf.rb) and every tagged release publishes an
+app bundle tarball for Apple Silicon and Intel.
+
+```sh
+brew tap list-jonas/gpui-pdf https://github.com/list-jonas/gpui-pdf
+brew trust --tap list-jonas/gpui-pdf
+brew install --cask --no-quarantine list-jonas/gpui-pdf/gpui-pdf
+```
+
+`brew trust` is required because Homebrew refuses to load formulae and casks
+from third-party taps until you say you trust them. Revoke it later with
+`brew untrust --tap list-jonas/gpui-pdf`.
+
+`--no-quarantine` is required because the released bundle is ad-hoc signed, not
+Developer ID signed or notarized. Without it Gatekeeper refuses to open the app.
+
+Upgrade and removal work the usual way:
+
+```sh
+brew upgrade --cask gpui-pdf
+brew uninstall --cask gpui-pdf
+```
+
 ## Run it
 
 Requires Rust 1.97.1, which the checked-in toolchain file will pick up for you.
