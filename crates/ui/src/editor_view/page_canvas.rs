@@ -181,9 +181,9 @@ impl EditorView {
                 } else {
                     let disabled =
                         item.field.read_only || item.field.kind == FormFieldKind::Signature;
-                    // Field text has to scale with the page, otherwise values
-                    // overflow their widget rect at anything but 100% zoom.
-                    let font_size = (rect.height * 0.6).clamp(6.0, 40.0);
+                    // Keep field text proportional to its widget at every zoom.
+                    // A fixed min/max would make text drift relative to the PDF.
+                    let font_size = form_text_size(rect.height);
                     page = page.child(
                         positioned(rect)
                             .rounded_sm()
@@ -619,6 +619,10 @@ fn display_text_size(size: f64, zoom: f32) -> f32 {
     ui_f32(size) * ui_f32(RENDER_SCALE) * zoom
 }
 
+fn form_text_size(widget_height: f32) -> f32 {
+    widget_height * 0.6
+}
+
 fn positioned(rect: OverlayRect) -> gpui::Div {
     div()
         .absolute()
@@ -646,12 +650,19 @@ fn color_to_u32(color: (f64, f64, f64)) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorStyle, Tool, cursor_for_tool, display_text_size};
+    use super::{CursorStyle, Tool, cursor_for_tool, display_text_size, form_text_size};
 
     #[test]
     fn text_size_uses_raster_scale_and_zoom() {
         assert!((display_text_size(14.0, 1.0) - 21.0).abs() < f32::EPSILON);
         assert!((display_text_size(14.0, 2.0) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn form_text_size_stays_proportional_to_widget_at_all_zooms() {
+        assert!((form_text_size(4.5) - 2.7).abs() < 0.001);
+        assert!((form_text_size(45.0) - 27.0).abs() < 0.001);
+        assert!((form_text_size(360.0) - 216.0).abs() < 0.001);
     }
 
     #[test]
