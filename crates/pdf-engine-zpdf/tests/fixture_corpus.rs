@@ -1,10 +1,10 @@
 use document_core::PdfRect;
 use pdf_engine::{
-    EditCommand, EngineError, EngineErrorKind, OpenRequest, Password, PdfDocument, PdfEngine,
-    RenderRequest, ShapeKind, TextStamp,
+    EditCommand, EngineError, EngineErrorKind, FormAction, FormButtonKind, FormValidation,
+    OpenRequest, Password, PdfDocument, PdfEngine, RenderRequest, ShapeKind, TextStamp,
 };
 use pdf_engine_zpdf::ZpdfEngine;
-use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, text_pdf};
+use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, scripted_form_pdf, text_pdf};
 use zpdf::PdfDocument as NativeDocument;
 use zpdf_writer::{EncryptionConfig, RewriteOptions, rewrite_pdf};
 
@@ -99,6 +99,8 @@ fn form_fields_fill_and_round_trip() {
     assert_eq!(fields[0].name, "customer.name");
     assert_eq!(fields[0].value, "Original");
     assert_eq!(fields[1].value, "Off");
+    assert_eq!(fields[1].button_kind, Some(FormButtonKind::CheckBox));
+    assert_eq!(fields[1].widgets[0].on_value.as_deref(), Some("Yes"));
     assert_eq!(fields[2].value, "ES");
     assert_eq!(fields[0].widgets[0].page_index, 0);
     assert_eq!(
@@ -122,12 +124,140 @@ fn form_fields_fill_and_round_trip() {
             },
         ])
         .unwrap();
+    let native = NativeDocument::open(output.clone()).unwrap();
+    let accept = native
+        .acro_form()
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "accept")
+        .unwrap();
+    assert_eq!(
+        native
+            .file()
+            .resolve(accept.widgets[0])
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get_name("AS")
+            .unwrap(),
+        "Yes"
+    );
     let reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
     let fields = reopened.form_fields().unwrap();
 
     assert_eq!(fields[0].value, "Ada Lovelace");
     assert_eq!(fields[1].value, "Yes");
     assert_eq!(fields[2].value, "AT");
+}
+
+#[test]
+fn scripted_form_exposes_button_states_actions_and_validation() {
+    let document = ZpdfEngine
+        .open(OpenRequest::new(scripted_form_pdf()))
+        .unwrap();
+    let fields = document.form_fields().unwrap();
+
+    assert_eq!(fields.len(), 6);
+    let date = fields.iter().find(|field| field.name == "date").unwrap();
+    assert_eq!(
+        date.validation,
+        Some(FormValidation::Date {
+            format: "dd.mm.yyyy".to_owned(),
+            display_format: "TT.MM.JJJJ".to_owned(),
+            example: "11.03.2007".to_owned(),
+            reject_future: true,
+            minimum: "01.01.1850".to_owned(),
+            maximum: "31.12.2200".to_owned(),
+        })
+    );
+
+    let set_date = fields
+        .iter()
+        .find(|field| field.name == "set-date")
+        .unwrap();
+    assert_eq!(set_date.button_kind, Some(FormButtonKind::Push));
+    assert_eq!(
+        set_date.widgets[0].action,
+        Some(FormAction::SetToday {
+            field_name: "date".to_owned(),
+            format: "dd.mm.yyyy".to_owned(),
+        })
+    );
+
+    let kind = fields.iter().find(|field| field.name == "kind").unwrap();
+    assert_eq!(kind.button_kind, Some(FormButtonKind::CheckBox));
+    assert_eq!(kind.widgets.len(), 2);
+    assert_eq!(kind.widgets[0].on_value.as_deref(), Some("1"));
+    assert_eq!(kind.widgets[1].on_value.as_deref(), Some("2"));
+
+    let master = fields.iter().find(|field| field.name == "master").unwrap();
+    assert_eq!(
+        master.widgets[0].action,
+        Some(FormAction::SetButtonValue {
+            field_name: "kind".to_owned(),
+            when_checked: None,
+            when_unchecked: Some("Off".to_owned()),
+        })
+    );
+    let reset = fields.iter().find(|field| field.name == "reset").unwrap();
+    assert_eq!(reset.widgets[0].action, Some(FormAction::ResetForm));
+    let insurance = fields
+        .iter()
+        .find(|field| field.name == "insurance-date")
+        .unwrap();
+    assert_eq!(
+        insurance.validation,
+        Some(FormValidation::AustrianInsuranceDate)
+    );
+}
+
+#[test]
+fn multi_state_checkbox_round_trips_exact_export_value() {
+    let mut document = ZpdfEngine
+        .open(OpenRequest::new(scripted_form_pdf()))
+        .unwrap();
+    let output = document
+        .export(&[EditCommand::FillForm {
+            name: "kind".to_owned(),
+            value: "2".to_owned(),
+        }])
+        .unwrap();
+    let native = NativeDocument::open(output.clone()).unwrap();
+    let kind = native
+        .acro_form()
+        .unwrap()
+        .fields
+        .iter()
+        .find(|field| field.name == "kind")
+        .unwrap();
+    let appearance_states: Vec<_> = kind
+        .widgets
+        .iter()
+        .map(|id| {
+            native
+                .file()
+                .resolve(*id)
+                .unwrap()
+                .as_dict()
+                .unwrap()
+                .get_name("AS")
+                .unwrap()
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(appearance_states, ["Off", "2"]);
+    let reopened = ZpdfEngine.open(OpenRequest::new(output)).unwrap();
+    let fields = reopened.form_fields().unwrap();
+
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name == "kind")
+            .unwrap()
+            .value,
+        "2"
+    );
 }
 
 #[test]

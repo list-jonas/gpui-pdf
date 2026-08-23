@@ -3,11 +3,9 @@ use gpui::{
     Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, canvas, div, img, px, relative, rgb, rgba,
 };
-use gpui_component::Disableable;
-use gpui_component::button::Button;
 use gpui_component::input::Input;
 use gpui_component::menu::ContextMenuExt;
-use pdf_engine::{EditCommand, FormFieldKind, ShapeKind};
+use pdf_engine::{EditCommand, FormAction, FormButtonKind, FormFieldKind, ShapeKind};
 
 use crate::EditorView;
 
@@ -154,33 +152,70 @@ impl EditorView {
                 .field
                 .widgets
                 .iter()
-                .filter(|widget| widget.page_index == page_index)
+                .filter(|widget| widget.page_index == page_index && widget.visible)
                 .enumerate()
             {
                 let rect = overlay_rect(widget.rect, geometry, self.zoom);
                 if item.field.kind == FormFieldKind::Button {
                     let name = item.field.name.clone();
-                    let checked = !matches!(item.value(cx).as_str(), "Off" | "false" | "");
+                    let on_value = widget.on_value.clone();
+                    let action = widget.action.clone();
+                    let button_kind = item.field.button_kind.unwrap_or(FormButtonKind::CheckBox);
+                    let read_only = item.field.read_only;
+                    if button_kind == FormButtonKind::Push && action.is_none() {
+                        continue;
+                    }
+                    let checked = on_value
+                        .as_deref()
+                        .is_some_and(|on_value| item.value(cx) == on_value);
                     page = page.child(
-                        positioned(rect).child(
-                            Button::new((
+                        positioned(rect)
+                            .id((
                                 "form-button",
                                 field_index.saturating_mul(1000) + widget_index,
                             ))
-                            .label(if checked { "✓" } else { "" })
-                            .disabled(item.field.read_only)
-                            .when(item.field.read_only, gpui::Styled::cursor_not_allowed)
-                            .when(!item.field.read_only, gpui::Styled::cursor_pointer)
-                            .on_click(cx.listener(
-                                move |view, _, window, cx| {
-                                    view.toggle_form_button(&name, window, cx);
-                                },
-                            )),
-                        ),
+                            .occlude()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_size(px(rect.height * 1.1))
+                            .text_color(solid(PAGE_TEXT))
+                            .when(button_kind != FormButtonKind::Push, |this| {
+                                this.bg(solid(0x00ff_ffff))
+                                    .border_1()
+                                    .border_color(solid(PAGE_TEXT))
+                            })
+                            .when(
+                                button_kind == FormButtonKind::Radio,
+                                gpui::Styled::rounded_full,
+                            )
+                            .when(checked && button_kind == FormButtonKind::CheckBox, |this| {
+                                this.child("×")
+                            })
+                            .when(checked && button_kind == FormButtonKind::Radio, |this| {
+                                this.child("●")
+                            })
+                            .when(read_only, gpui::Styled::cursor_not_allowed)
+                            .when(!read_only, gpui::Styled::cursor_pointer)
+                            .when(!read_only, |this| {
+                                this.on_click(cx.listener(move |view, _, window, cx| {
+                                    view.activate_form_button(
+                                        &name,
+                                        on_value.as_deref(),
+                                        button_kind,
+                                        action.as_ref(),
+                                        window,
+                                        cx,
+                                    );
+                                }))
+                            }),
                     );
                 } else {
                     let disabled =
                         item.field.read_only || item.field.kind == FormFieldKind::Signature;
+                    if disabled {
+                        continue;
+                    }
                     // Keep field text proportional to its widget at every zoom.
                     // A fixed min/max would make text drift relative to the PDF.
                     let font_size = form_text_size(rect.height);
@@ -583,18 +618,108 @@ impl EditorView {
         )
     }
 
-    fn toggle_form_button(&mut self, name: &str, window: &mut Window, cx: &mut Context<Self>) {
-        if let Some(item) = self.forms.iter().find(|item| item.field.name == name) {
-            let next = if matches!(item.value(cx).as_str(), "Off" | "false" | "") {
-                "true"
-            } else {
-                "false"
+    fn activate_form_button(
+        &mut self,
+        name: &str,
+        on_value: Option<&str>,
+        button_kind: FormButtonKind,
+        action: Option<&FormAction>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let mut checked = false;
+        if button_kind != FormButtonKind::Push {
+            let Some(on_value) = on_value else {
+                return;
             };
-            item.input
-                .update(cx, |state, cx| state.set_value(next, window, cx));
-            self.status = format!("Updated {name}").into();
-            cx.notify();
+            let Some((input, current)) = self
+                .forms
+                .iter()
+                .find(|item| item.field.name == name)
+                .map(|item| (item.input.clone(), item.value(cx)))
+            else {
+                return;
+            };
+            checked = current != on_value;
+            let next = if checked {
+                on_value.to_owned()
+            } else if button_kind == FormButtonKind::Radio {
+                checked = true;
+                on_value.to_owned()
+            } else {
+                "Off".to_owned()
+            };
+            input.update(cx, |state, cx| state.set_value(next, window, cx));
         }
+        if let Some(action) = action {
+            self.execute_form_action(action, checked, window, cx);
+        }
+        cx.notify();
+    }
+
+    fn execute_form_action(
+        &mut self,
+        action: &FormAction,
+        source_checked: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        match action {
+            FormAction::SetToday { field_name, format } => {
+                let value = format_today(format);
+                if self.set_form_value(field_name, &value, window, cx) {
+                    self.flash(
+                        format!("Set {field_name} to {value}"),
+                        super::Severity::Info,
+                        cx,
+                    );
+                }
+            }
+            FormAction::ResetForm => {
+                for item in &self.forms {
+                    item.input.update(cx, |state, cx| {
+                        state.set_value(item.field.value.clone(), window, cx);
+                    });
+                }
+                self.history
+                    .retain(|edit| !matches!(edit, EditCommand::FillForm { .. }));
+                self.flash("Reset form", super::Severity::Info, cx);
+            }
+            FormAction::SetButtonValue {
+                field_name,
+                when_checked,
+                when_unchecked,
+            } => {
+                let value = if source_checked {
+                    when_checked
+                } else {
+                    when_unchecked
+                };
+                if let Some(value) = value {
+                    self.set_form_value(field_name, value, window, cx);
+                }
+            }
+        }
+    }
+
+    fn set_form_value(
+        &mut self,
+        field_name: &str,
+        value: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(input) = self
+            .forms
+            .iter()
+            .find(|item| item.field.name == field_name)
+            .map(|item| item.input.clone())
+        else {
+            return false;
+        };
+        let value = value.to_owned();
+        input.update(cx, |state, cx| state.set_value(value, window, cx));
+        true
     }
 
     fn page_cursor(&self) -> CursorStyle {
@@ -639,6 +764,16 @@ fn text_origin(
 
 fn form_text_size(widget_height: f32) -> f32 {
     widget_height * 0.6
+}
+
+fn format_today(format: &str) -> String {
+    use chrono::Local;
+    let chrono_format = match format {
+        "mm/dd/yyyy" => "%m/%d/%Y",
+        "yyyy-mm-dd" => "%Y-%m-%d",
+        _ => "%d.%m.%Y",
+    };
+    Local::now().date_naive().format(chrono_format).to_string()
 }
 
 fn positioned(rect: OverlayRect) -> gpui::Div {

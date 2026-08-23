@@ -6502,6 +6502,7 @@ name = "ui"
 version = "0.1.0"
 dependencies = [
  "async-channel 2.5.0",
+ "chrono",
  "document-core",
  "gpui",
  "gpui-component",

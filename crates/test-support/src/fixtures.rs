@@ -61,6 +61,50 @@ pub fn form_pdf() -> Vec<u8> {
     ])
 }
 
+/// Form fixture covering Acrobat-style button states and the small JavaScript
+/// action subset used by Austrian government forms.
+pub fn scripted_form_pdf() -> Vec<u8> {
+    build_pdf(&[
+        b"<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 180] /Resources << >> \
+          /Contents 4 0 R /Annots [6 0 R 7 0 R 9 0 R 10 0 R 13 0 R 15 0 R 16 0 R] >>"
+            .to_vec(),
+        stream("", b""),
+        b"<< /Fields [6 0 R 7 0 R 8 0 R 13 0 R 15 0 R 16 0 R] >>".to_vec(),
+        br#"<< /Type /Annot /Subtype /Widget /FT /Tx /T (date) /Rect [20 140 100 160]
+          /P 3 0 R /AA << /V << /S /JavaScript
+          /JS (event.value=std_format_date\(event.value,"dd.mm.yyyy","TT.MM.JJJJ","","true","","","true","",""\);) >> >> >>"#
+            .to_vec(),
+        br#"<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (set-date)
+          /Rect [102 140 122 160] /P 3 0 R /AA << /D << /S /JavaScript
+          /JS (this.getField\("date"\).value=util.printd\("dd.mm.yyyy",new Date\(\)\);) >> >> >>"#
+            .to_vec(),
+        b"<< /FT /Btn /T (kind) /V /Off /Kids [9 0 R 10 0 R] >>".to_vec(),
+        b"<< /Type /Annot /Subtype /Widget /Parent 8 0 R /Rect [20 100 32 112] /P 3 0 R \
+          /AS /Off /AP << /N << /1 11 0 R >> >> >>"
+            .to_vec(),
+        b"<< /Type /Annot /Subtype /Widget /Parent 8 0 R /Rect [20 80 32 92] /P 3 0 R \
+          /AS /Off /AP << /N << /2 12 0 R >> >> >>"
+            .to_vec(),
+        stream("/Type /XObject /Subtype /Form /BBox [0 0 12 12]", b"2 2 m 10 10 l S"),
+        stream("/Type /XObject /Subtype /Form /BBox [0 0 12 12]", b"2 10 m 10 2 l S"),
+        br#"<< /Type /Annot /Subtype /Widget /FT /Btn /T (master) /V /Off /AS /Off
+          /Rect [50 100 62 112] /P 3 0 R /AP << /N << /1 14 0 R >> >>
+          /A << /S /JavaScript /JS (var x=gv\("master"\); if \(x=="Off"\)
+          { gf\("kind"\).value="Off"; } else { }) >> >>"#
+            .to_vec(),
+        stream("/Type /XObject /Subtype /Form /BBox [0 0 12 12]", b"2 2 m 10 10 l S"),
+        b"<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (reset) \
+          /Rect [20 40 60 60] /P 3 0 R /A << /S /ResetForm >> >>"
+            .to_vec(),
+        br"<< /Type /Annot /Subtype /Widget /FT /Tx /T (insurance-date)
+          /Rect [80 40 160 60] /P 3 0 R /AA << /V << /S /JavaScript
+          /JS (std_enCheck\(\);) >> >> >>"
+            .to_vec(),
+    ])
+}
+
 pub fn multi_page_pdf() -> Vec<u8> {
     let font_id = 3 + MULTI_PAGE_COUNT * 2;
     let page_ids: Vec<_> = (0..MULTI_PAGE_COUNT).map(|index| 3 + index * 2).collect();
@@ -162,6 +206,7 @@ mod tests {
         assert_ne!(text_pdf(), image_pdf());
         assert!(malformed_pdf().starts_with(b"%PDF"));
         assert_ne!(text_pdf(), form_pdf());
+        assert_ne!(form_pdf(), scripted_form_pdf());
     }
 
     #[test]

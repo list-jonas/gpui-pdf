@@ -183,16 +183,22 @@ impl EditorView {
             .map(|item| {
                 (
                     item.field.name.clone(),
+                    item.field.kind,
                     item.field.value.clone(),
                     item.value(cx),
                 )
             })
             .collect();
-        for (name, original, value) in values {
+        for (name, kind, original, value) in values {
             self.history.retain(|edit| {
                 !matches!(edit, EditCommand::FillForm { name: existing, .. } if existing == &name)
             });
-            if value != original {
+            let unchanged = if kind == FormFieldKind::Button {
+                button_values_equal(&value, &original)
+            } else {
+                value == original
+            };
+            if !unchanged {
                 self.history.push(EditCommand::FillForm { name, value });
             }
         }
@@ -266,6 +272,11 @@ impl EditorView {
     }
 }
 
+fn button_values_equal(left: &str, right: &str) -> bool {
+    let is_off = |value: &str| matches!(value, "" | "Off" | "off" | "false");
+    left == right || (is_off(left) && is_off(right))
+}
+
 pub(super) fn file_name(path: &Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
@@ -278,4 +289,17 @@ fn file_stem(path: &Path) -> String {
         .and_then(|name| name.to_str())
         .unwrap_or("document")
         .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::button_values_equal;
+
+    #[test]
+    fn missing_and_explicit_off_button_values_are_equivalent() {
+        assert!(button_values_equal("", "Off"));
+        assert!(button_values_equal("false", ""));
+        assert!(!button_values_equal("1", "Off"));
+        assert!(!button_values_equal("1", "2"));
+    }
 }

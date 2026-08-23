@@ -1,7 +1,7 @@
 use pdf_engine::{
-    DocumentMetadata, EditCommand, EngineError, EngineErrorKind, FormField, FormFieldKind,
-    FormWidget, PageMetadata, PdfEditor, PdfReader, PdfRenderer, RenderRequest, RenderedPage,
-    ShapeKind, TextFragment,
+    DocumentMetadata, EditCommand, EngineError, EngineErrorKind, FormAction, FormButtonKind,
+    FormField, FormFieldKind, FormValidation, FormWidget, PageMetadata, PdfEditor, PdfReader,
+    PdfRenderer, RenderRequest, RenderedPage, ShapeKind, TextFragment,
 };
 use std::io::Cursor;
 use zpdf::{ContentInterpreter, ImageCache, RenderBackend, TextSpan};
@@ -14,6 +14,8 @@ use crate::cache::{PageCache, RenderedContent};
 use crate::convert::{map_engine_error, map_render_error, page_geometry};
 
 const FF_READ_ONLY: i64 = 1;
+const FF_RADIO: i64 = 1 << 15;
+const FF_PUSH_BUTTON: i64 = 1 << 16;
 
 pub struct ZpdfDocument {
     inner: zpdf::PdfDocument,
@@ -118,6 +120,16 @@ impl ZpdfDocument {
             },
             options: field.options.clone(),
             read_only: field.flags & FF_READ_ONLY != 0,
+            button_kind: (kind == FormFieldKind::Button).then_some({
+                if field.flags & FF_PUSH_BUTTON != 0 {
+                    FormButtonKind::Push
+                } else if field.flags & FF_RADIO != 0 {
+                    FormButtonKind::Radio
+                } else {
+                    FormButtonKind::CheckBox
+                }
+            }),
+            validation: self.field_validation(field),
             widgets: self.field_widgets(field),
         }
     }
@@ -128,21 +140,163 @@ impl ZpdfDocument {
             let Ok(page) = self.inner.page(page_index) else {
                 continue;
             };
-            for (id, annotation) in page.annots.iter().zip(self.inner.page_annotations(&page)) {
-                if field.widgets.contains(id)
-                    && let Ok(rect) = document_core::PdfRect::new(
-                        annotation.rect.x0,
-                        annotation.rect.y0,
-                        annotation.rect.x1,
-                        annotation.rect.y1,
-                    )
-                {
-                    widgets.push(FormWidget { page_index, rect });
-                }
+            for id in page.annots.iter().filter(|id| field.widgets.contains(id)) {
+                let Some(dictionary) = self.object_dictionary(*id) else {
+                    continue;
+                };
+                let Ok(raw_rect) = dictionary.get_rect("Rect") else {
+                    continue;
+                };
+                let Ok(rect) =
+                    document_core::PdfRect::new(raw_rect.x0, raw_rect.y0, raw_rect.x1, raw_rect.y1)
+                else {
+                    continue;
+                };
+                widgets.push(FormWidget {
+                    page_index,
+                    rect,
+                    visible: dictionary.get_i64("F").unwrap_or(0) & (1 | 2 | 32) == 0,
+                    on_value: (field.kind == zpdf::FieldKind::Button)
+                        .then(|| button_on_value(self.inner.file(), &dictionary))
+                        .flatten(),
+                    action: (field.kind == zpdf::FieldKind::Button)
+                        .then(|| button_action(self.inner.file(), &dictionary))
+                        .flatten()
+                        .or_else(|| {
+                            self.object_dictionary(field.field_id)
+                                .and_then(|field| button_action(self.inner.file(), &field))
+                        }),
+                });
             }
         }
         widgets
     }
+
+    fn field_validation(&self, field: &zpdf::FormField) -> Option<FormValidation> {
+        let dictionary = self.object_dictionary(field.field_id)?;
+        let script = additional_action_script(self.inner.file(), &dictionary, "V")?;
+        if script.contains("std_format_date") && script.contains("dd.mm.yyyy") {
+            return Some(FormValidation::Date {
+                format: "dd.mm.yyyy".to_owned(),
+                display_format: "TT.MM.JJJJ".to_owned(),
+                example: "11.03.2007".to_owned(),
+                reject_future: script.contains(",\"true\"") || script.contains(", \"true\""),
+                minimum: "01.01.1850".to_owned(),
+                maximum: "31.12.2200".to_owned(),
+            });
+        }
+        script
+            .contains("std_enCheck")
+            .then_some(FormValidation::AustrianInsuranceDate)
+    }
+
+    fn object_dictionary(&self, id: zpdf::ObjectId) -> Option<zpdf::PdfDict> {
+        self.inner.file().resolve(id).ok()?.as_dict().ok().cloned()
+    }
+}
+
+fn resolve_object(file: &zpdf::PdfFile, object: &zpdf::PdfObject) -> Option<zpdf::PdfObject> {
+    match object {
+        zpdf::PdfObject::Ref(id) => file.resolve(*id).ok(),
+        direct => Some(direct.clone()),
+    }
+}
+
+fn resolve_dictionary(file: &zpdf::PdfFile, object: &zpdf::PdfObject) -> Option<zpdf::PdfDict> {
+    resolve_object(file, object)?.as_dict().ok().cloned()
+}
+
+fn pdf_string(object: &zpdf::PdfObject) -> Option<String> {
+    let bytes = object.as_str().ok()?.as_bytes();
+    if let Some(body) = bytes.strip_prefix(&[0xfe, 0xff]) {
+        let (pairs, _) = body.as_chunks::<2>();
+        let units = pairs.iter().map(|pair| u16::from_be_bytes(*pair));
+        return Some(
+            char::decode_utf16(units)
+                .map(|c| c.unwrap_or('\u{fffd}'))
+                .collect(),
+        );
+    }
+    Some(String::from_utf8_lossy(bytes).into_owned())
+}
+
+fn action_script(file: &zpdf::PdfFile, object: &zpdf::PdfObject) -> Option<String> {
+    let action = resolve_dictionary(file, object)?;
+    (action.get_name("S").ok()? == "JavaScript")
+        .then(|| action.get("JS"))
+        .flatten()
+        .and_then(|script| resolve_object(file, script))
+        .as_ref()
+        .and_then(pdf_string)
+}
+
+fn additional_action_script(
+    file: &zpdf::PdfFile,
+    dictionary: &zpdf::PdfDict,
+    event: &str,
+) -> Option<String> {
+    let actions = resolve_dictionary(file, dictionary.get("AA")?)?;
+    action_script(file, actions.get(event)?)
+}
+
+fn button_on_value(file: &zpdf::PdfFile, widget: &zpdf::PdfDict) -> Option<String> {
+    let appearances = resolve_dictionary(file, widget.get("AP")?)?;
+    let normal = resolve_dictionary(file, appearances.get("N")?)?;
+    normal
+        .0
+        .keys()
+        .find(|name| name.as_str() != "Off")
+        .map(|name| name.as_str().to_owned())
+}
+
+fn button_action(file: &zpdf::PdfFile, dictionary: &zpdf::PdfDict) -> Option<FormAction> {
+    let action_object = dictionary
+        .get("AA")
+        .and_then(|additional| resolve_dictionary(file, additional))
+        .and_then(|actions| actions.get("U").or_else(|| actions.get("D")).cloned())
+        .or_else(|| dictionary.get("A").cloned())?;
+    let action = resolve_dictionary(file, &action_object)?;
+    if action.get_name("S").ok() == Some("ResetForm") {
+        return Some(FormAction::ResetForm);
+    }
+    let script = action_script(file, &action_object)?;
+    parse_javascript_button_action(&script)
+}
+
+fn parse_javascript_button_action(script: &str) -> Option<FormAction> {
+    if script.contains("util.printd") && script.contains("new Date") {
+        let field_name = quoted_after(script, "getField(")?;
+        let format = quoted_after(script, "util.printd(")?;
+        return Some(FormAction::SetToday { field_name, format });
+    }
+
+    if !script.contains("==\"Off\"") && !script.contains("== \"Off\"") {
+        return None;
+    }
+    let else_index = script.find("else")?;
+    let (off_branch, checked_branch) = script.split_at(else_index);
+    let field_name = quoted_after(script, "gf(")?;
+    let when_unchecked = assigned_value(off_branch);
+    let when_checked = assigned_value(checked_branch);
+    (when_checked.is_some() || when_unchecked.is_some()).then_some(FormAction::SetButtonValue {
+        field_name,
+        when_checked,
+        when_unchecked,
+    })
+}
+
+fn quoted_after(text: &str, marker: &str) -> Option<String> {
+    let remainder = text.get(text.find(marker)? + marker.len()..)?.trim_start();
+    let quote = remainder.chars().next()?;
+    if !matches!(quote, '\'' | '"') {
+        return None;
+    }
+    let body = remainder.get(quote.len_utf8()..)?;
+    Some(body.get(..body.find(quote)?)?.to_owned())
+}
+
+fn assigned_value(branch: &str) -> Option<String> {
+    quoted_after(branch, ".value=").or_else(|| quoted_after(branch, ".value ="))
 }
 
 #[allow(clippy::too_many_lines)]

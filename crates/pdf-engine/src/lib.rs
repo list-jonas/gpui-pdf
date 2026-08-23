@@ -8,7 +8,7 @@ mod types;
 
 pub use editor::{EditCommand, PdfEditor, ShapeKind, TextStamp};
 pub use error::{EngineError, EngineErrorKind};
-pub use forms::{FormField, FormFieldKind, FormWidget};
+pub use forms::{FormAction, FormButtonKind, FormField, FormFieldKind, FormValidation, FormWidget};
 pub use reader::{PdfDocument, PdfEngine, PdfReader};
 pub use renderer::PdfRenderer;
 pub use text::TextFragment;

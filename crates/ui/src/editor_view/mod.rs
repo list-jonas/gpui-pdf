@@ -24,7 +24,7 @@ use gpui::{
     Window,
 };
 use gpui_component::input::InputState;
-use pdf_engine::{EditCommand, FormField, ShapeKind};
+use pdf_engine::{EditCommand, FormField, FormValidation, ShapeKind};
 
 use crate::field_input::FieldInput;
 use crate::page_image::render_image;
@@ -361,9 +361,21 @@ impl EditorView {
             .into_iter()
             .map(|field| {
                 let value = self.pending_form_value(&field);
+                let input = input("", &value, window, cx);
+                let field_name = field.name.clone();
+                let subscription = cx.subscribe_in(
+                    &input,
+                    window,
+                    move |view, _, event: &gpui_component::input::InputEvent, window, cx| {
+                        if matches!(event, gpui_component::input::InputEvent::Blur) {
+                            view.validate_form_field(&field_name, window, cx);
+                        }
+                    },
+                );
                 FieldInput {
-                    input: input(&field.name, &value, window, cx),
+                    input,
                     field,
+                    _subscription: subscription,
                 }
             })
             .collect();
@@ -444,6 +456,74 @@ impl EditorView {
             .unwrap_or_else(|| field.value.clone())
     }
 
+    fn validate_form_field(
+        &mut self,
+        field_name: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(item) = self.forms.iter().find(|item| item.field.name == field_name) else {
+            return;
+        };
+        let Some(validation) = item.field.validation.clone() else {
+            return;
+        };
+        let value = item.value(cx);
+        let original = item.field.value.clone();
+        let input = item.input.clone();
+        let result = match &validation {
+            FormValidation::Date {
+                display_format,
+                example,
+                reject_future,
+                minimum,
+                maximum,
+                ..
+            } => validate_date_value(
+                &value,
+                display_format,
+                example,
+                *reject_future,
+                minimum,
+                maximum,
+            ),
+            FormValidation::AustrianInsuranceDate => validate_insurance_date(&value),
+        };
+        match result {
+            Ok(normalized) if normalized != value => {
+                input.update(cx, |state, cx| state.set_value(normalized, window, cx));
+            }
+            Ok(_) => {}
+            Err(message) => {
+                let replacement = if matches!(validation, FormValidation::Date { .. }) {
+                    String::new()
+                } else {
+                    original
+                };
+                input.update(cx, |state, cx| state.set_value(replacement, window, cx));
+                self.form_alert(message, window, cx);
+            }
+        }
+    }
+
+    fn form_alert(&mut self, message: String, window: &mut Window, cx: &mut Context<Self>) {
+        use gpui::{PromptButton, PromptLevel};
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            &message,
+            None,
+            &[PromptButton::ok("OK")],
+            cx,
+        );
+        self.status = message.into();
+        self.severity = Severity::Error;
+        cx.spawn(async move |_, _| {
+            let _ = answer.await;
+        })
+        .detach();
+        cx.notify();
+    }
+
     /// Keeps the page box in sync with the current page unless the user is
     /// typing in it. Called from render, so every path that changes the page
     /// updates the field, including ones without a `Window` at hand.
@@ -483,6 +563,63 @@ impl EditorView {
     }
 }
 
+fn validate_date_value(
+    value: &str,
+    display_format: &str,
+    example: &str,
+    reject_future: bool,
+    minimum: &str,
+    maximum: &str,
+) -> Result<String, String> {
+    use chrono::{Local, NaiveDate};
+
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    let normalized_input = if value.len() == 9 {
+        format!("0{value}")
+    } else {
+        value.to_owned()
+    };
+    let date = NaiveDate::parse_from_str(&normalized_input, "%d.%m.%Y").map_err(|_| {
+        format!("Bitte geben Sie das Datum im Format {display_format} ein. (Beispiel:{example})")
+    })?;
+    if reject_future && date > Local::now().date_naive() {
+        return Err("Das Datum darf nicht nach dem akutellen Datum liegen!".to_owned());
+    }
+    let minimum_date = NaiveDate::parse_from_str(minimum, "%d.%m.%Y")
+        .expect("PDF date minimum is normalized by adapter");
+    if date < minimum_date {
+        return Err(format!("Das Datum muss nach {minimum} liegen."));
+    }
+    let maximum_date = NaiveDate::parse_from_str(maximum, "%d.%m.%Y")
+        .expect("PDF date maximum is normalized by adapter");
+    if date > maximum_date {
+        return Err(format!("Das Datum muss vor {maximum} liegen."));
+    }
+    Ok(date.format("%d.%m.%Y").to_string())
+}
+
+fn validate_insurance_date(value: &str) -> Result<String, String> {
+    if value.is_empty() {
+        return Ok(String::new());
+    }
+    if value.len() != 6 || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(
+            "Der zweite Teil der Versicherungsnummer muss aus 6 Zeichen bestehen".to_owned(),
+        );
+    }
+    let day: u8 = value[..2].parse().unwrap_or_default();
+    if day > 31 {
+        return Err("Der Tag darf nicht größer als 31 sein".to_owned());
+    }
+    let month: u8 = value[2..4].parse().unwrap_or_default();
+    if month > 15 {
+        return Err("Falsche Monatsangabe!".to_owned());
+    }
+    Ok(value.to_owned())
+}
+
 pub(super) fn input(
     placeholder: &str,
     default: &str,
@@ -508,4 +645,50 @@ pub(super) fn inline_text_input(
             .placeholder(placeholder.to_owned())
             .default_value(default.to_owned())
     })
+}
+
+#[cfg(test)]
+mod form_validation_tests {
+    use super::{validate_date_value, validate_insurance_date};
+
+    #[test]
+    fn date_validation_matches_form_messages_and_normalization() {
+        let validate = |value| {
+            validate_date_value(
+                value,
+                "TT.MM.JJJJ",
+                "11.03.2007",
+                true,
+                "01.01.1850",
+                "31.12.2200",
+            )
+        };
+
+        assert_eq!(validate("1.02.2020").unwrap(), "01.02.2020");
+        assert_eq!(
+            validate("not-a-date").unwrap_err(),
+            "Bitte geben Sie das Datum im Format TT.MM.JJJJ ein. (Beispiel:11.03.2007)"
+        );
+        assert_eq!(
+            validate("31.12.1849").unwrap_err(),
+            "Das Datum muss nach 01.01.1850 liegen."
+        );
+    }
+
+    #[test]
+    fn insurance_validation_matches_form_messages() {
+        assert_eq!(validate_insurance_date("010120").unwrap(), "010120");
+        assert_eq!(
+            validate_insurance_date("123").unwrap_err(),
+            "Der zweite Teil der Versicherungsnummer muss aus 6 Zeichen bestehen"
+        );
+        assert_eq!(
+            validate_insurance_date("320120").unwrap_err(),
+            "Der Tag darf nicht größer als 31 sein"
+        );
+        assert_eq!(
+            validate_insurance_date("011620").unwrap_err(),
+            "Falsche Monatsangabe!"
+        );
+    }
 }
