@@ -290,6 +290,7 @@ impl EditorView {
                 let font_size = form_text_size(rect.height);
                 let mut overlay = positioned(rect)
                     .id(("form-input", field_index * 1000 + widget_index))
+                    .occlude()
                     .rounded_sm()
                     .bg(if disabled {
                         rgba(0x9ca3_ad1a)
