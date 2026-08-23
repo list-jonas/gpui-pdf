@@ -1,17 +1,29 @@
 use std::path::{Path, PathBuf};
 
-use gpui::{App, Context, PathPromptOptions, Window};
+use gpui::{App, Context, PathPromptOptions, PromptButton, PromptLevel, Window};
 use pdf_engine::{EditCommand, FormFieldKind};
 
 use crate::actions::{
-    FirstPage, GoToPage, LastPage, NextPage, OpenDocument, PreviousPage, SaveDocument,
-    SaveDocumentAs,
+    CloseWindow, FirstPage, GoToPage, LastPage, NextPage, OpenDocument, OpenInDefaultViewer,
+    PreviousPage, SaveDocument, SaveDocumentAs,
 };
 use crate::{EditorRequest, EditorView};
 
-use super::Severity;
+use super::{CloseState, Severity};
 
 impl EditorView {
+    pub(super) fn install_close_guard(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.close_state != CloseState::Uninstalled {
+            return;
+        }
+        let view = cx.weak_entity();
+        window.on_window_should_close(cx, move |window, cx| {
+            view.update(cx, |view, cx| view.request_close(window, cx))
+                .unwrap_or(true)
+        });
+        self.close_state = CloseState::Ready;
+    }
+
     pub(super) fn open_picker(&mut self, _: &OpenDocument, _: &mut Window, cx: &mut Context<Self>) {
         self.busy = false;
         let receiver = cx.prompt_for_paths(PathPromptOptions {
@@ -39,6 +51,67 @@ impl EditorView {
         self.detail = Some(path.display().to_string().into());
         self.history.clear();
         let _ = self.requests.try_send(EditorRequest::Open(path));
+    }
+
+    pub(super) fn open_in_default_viewer(
+        &mut self,
+        _: &OpenInDefaultViewer,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(path) = self.path.clone() else {
+            self.flash("No document open", Severity::Info, cx);
+            return;
+        };
+        cx.open_with_system(&path);
+        self.flash("Opened in default PDF app", Severity::Info, cx);
+    }
+
+    pub(super) fn close_window(
+        &mut self,
+        _: &CloseWindow,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.request_close(window, cx) {
+            window.remove_window();
+        }
+    }
+
+    /// Returns true when no work would be lost and native close may continue.
+    pub(super) fn request_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.capture_form_edits(cx);
+        self.materialize_inline_edits(cx);
+        if self.history.is_empty() {
+            return true;
+        }
+
+        let answer = window.prompt(
+            PromptLevel::Warning,
+            "Save changes before closing?",
+            self.path.as_deref().and_then(Path::to_str),
+            &[
+                PromptButton::ok("Save"),
+                PromptButton::new("Discard"),
+                PromptButton::cancel("Cancel"),
+            ],
+            cx,
+        );
+        cx.spawn_in(window, async move |view, cx| {
+            let Ok(choice) = answer.await else {
+                return;
+            };
+            let _ = view.update_in(cx, |view, window, cx| match choice {
+                0 => {
+                    view.close_state = CloseState::AfterSave;
+                    view.save_document(&SaveDocument, window, cx);
+                }
+                1 => window.remove_window(),
+                _ => {}
+            });
+        })
+        .detach();
+        false
     }
 
     /// Save writes back to the open file; Save As always prompts.

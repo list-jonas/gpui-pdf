@@ -6,6 +6,7 @@ use gpui_component::button::{Button, ButtonVariants};
 use gpui_component::menu::ContextMenuExt;
 use gpui_component::scroll::ScrollableElement;
 
+use super::DocumentSecurity;
 use super::model::{Tool, shape_label};
 use crate::EditorView;
 use crate::theme::{
@@ -40,6 +41,7 @@ impl EditorView {
 
         let content = self
             .add_tool_properties(panel, cx)
+            .child(self.render_document_properties())
             .child(self.render_edit_list(cx))
             .when_some(self.detail.clone(), |panel, detail| {
                 panel.child(
@@ -71,6 +73,46 @@ impl EditorView {
             .context_menu_with_id("properties-menu", {
                 let view = cx.entity();
                 move |menu, _, cx| view.read(cx).view_menu(menu)
+            })
+    }
+
+    fn render_document_properties(&self) -> impl IntoElement {
+        let page_detail = self.pages.get(self.page_index).map(|page| {
+            format!(
+                "{:.0} × {:.0} pt · {}°",
+                page.metadata.geometry.crop_box.width(),
+                page.metadata.geometry.crop_box.height(),
+                page.metadata.geometry.rotation.degrees(),
+            )
+        });
+        let security = match self.security {
+            DocumentSecurity::Unknown => "Unknown",
+            DocumentSecurity::Unencrypted => "Not encrypted",
+            DocumentSecurity::Encrypted => "Encrypted",
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .pt_3()
+            .border_t_1()
+            .border_color(tint(BORDER))
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(tint(TEXT_FAINT))
+                    .child("DOCUMENT"),
+            )
+            .child(property_row("Pages", self.page_count.to_string()))
+            .child(property_row(
+                "PDF version",
+                format!("{}.{}", self.pdf_version.0, self.pdf_version.1),
+            ))
+            .child(property_row("Security", security))
+            .child(property_row("Form fields", self.forms.len().to_string()))
+            .when_some(page_detail, |section, detail| {
+                section.child(property_row("Current page", detail))
             })
     }
 
@@ -293,6 +335,21 @@ impl EditorView {
             .label(label)
             .on_click(cx.listener(move |view, _, _, cx| view.set_shape_kind(kind, cx)))
     }
+}
+
+fn property_row(label: &'static str, value: impl Into<gpui::SharedString>) -> impl IntoElement {
+    div()
+        .flex()
+        .items_start()
+        .gap_2()
+        .text_xs()
+        .child(div().w_24().text_color(tint(TEXT_MUTED)).child(label))
+        .child(
+            div()
+                .flex_1()
+                .text_color(tint(TEXT_FAINT))
+                .child(value.into()),
+        )
 }
 
 /// Tolerant comparison for the small set of preset colors.

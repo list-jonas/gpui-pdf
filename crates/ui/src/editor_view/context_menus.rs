@@ -12,10 +12,11 @@ use pdf_engine::EditCommand;
 use crate::EditorView;
 use crate::actions::{
     ActualSize, AddNoteHere, AddTextHere, ClearEdits, CopyFilePath, CopyPageText, CopySelection,
-    DeleteAnnotation, Deselect, EditAnnotation, FindSelection, FitPage, FitWidth, GoToPage,
-    HighlightSelection, NextPage, OpenDocument, PasteText, PreviousPage, RedactSelection,
-    RevealInFinder, SaveDocument, SaveDocumentAs, SelectAllText, StrikeoutSelection,
-    TogglePropertiesPanel, ToggleSidebar, UnderlineSelection,
+    DeleteAnnotation, Deselect, DocumentProperties, EditAnnotation, FindSelection, FitPage,
+    FitWidth, GoToPage, HighlightSelection, NextPage, OpenDocument, OpenInDefaultViewer, PasteText,
+    PreviousPage, RedactSelection, RevealInFinder, SaveDocument, SaveDocumentAs, SelectAllText,
+    StrikeoutSelection, ToggleFullScreen, TogglePropertiesPanel, ToggleReadingMode, ToggleSidebar,
+    UnderlineSelection,
 };
 
 use super::commands::MenuTarget;
@@ -128,6 +129,16 @@ impl EditorView {
             .separator()
             .menu_with_enable("Discard Pending Edits", Box::new(ClearEdits), has_edits)
             .separator()
+            .menu_with_enable(
+                "Document Properties",
+                Box::new(DocumentProperties),
+                has_document,
+            )
+            .menu_with_enable(
+                "Open in Default Viewer",
+                Box::new(OpenInDefaultViewer),
+                has_document,
+            )
             .menu_with_enable("Reveal in Finder", Box::new(RevealInFinder), has_document)
             .menu_with_enable("Copy File Path", Box::new(CopyFilePath), has_document)
     }
@@ -144,10 +155,17 @@ impl EditorView {
             self.panels.properties,
             Box::new(TogglePropertiesPanel),
         )
+        .menu_with_check(
+            "Reading Mode",
+            self.reading_mode,
+            Box::new(ToggleReadingMode),
+        )
         .separator()
         .menu("Fit Page", Box::new(FitPage))
         .menu("Fit Width", Box::new(FitWidth))
         .menu("Actual Size", Box::new(ActualSize))
+        .separator()
+        .menu("Full Screen Mode", Box::new(ToggleFullScreen))
     }
 
     /// Pending-edit row menu.

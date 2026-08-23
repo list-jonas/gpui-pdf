@@ -6,15 +6,17 @@ use gpui::{
 };
 use gpui_component::Root;
 use ui::{
-    ActualSize, AddNoteHere, AddTextHere, AddTextTool, Cancel, ClearEdits, CopyFilePath,
-    CopyPageText, CopySelection, DeleteAnnotation, DeleteSelection, Deselect, EditAnnotation,
-    EditTool, EditorRequest, EditorView, FindSelection, FirstPage, FitPage, FitWidth, GoToPage,
-    HandTool, HighlightSelection, HighlightTool, LastPage, NextPage, NextSearchResult, NoteTool,
-    OpenDocument, PasteText, PreviousPage, PreviousSearchResult, RedactSelection, RedactTool, Redo,
+    ActualSize, AddNoteHere, AddTextHere, AddTextTool, Cancel, ClearEdits, CloseWindow,
+    CopyFilePath, CopyPageText, CopySelection, DeleteAnnotation, DeleteSelection, Deselect,
+    DocumentProperties, EditAnnotation, EditTool, EditorRequest, EditorView, FindSelection,
+    FirstPage, FitPage, FitWidth, GoToPage, HandTool, HighlightSelection, HighlightTool, LastPage,
+    MinimizeWindow, NextPage, NextSearchResult, NoteTool, OpenDocument, OpenInDefaultViewer,
+    PasteText, PreviousPage, PreviousSearchResult, RedactSelection, RedactTool, Redo,
     RevealInFinder, SaveDocument, SaveDocumentAs, ScrollDown, ScrollPageDown, ScrollPageUp,
     ScrollToBottom, ScrollToTop, ScrollUp, Search, SelectAllText, SelectTool, ShapeTool,
-    SignatureTool, StrikeoutSelection, StrikeoutTool, TogglePropertiesPanel, ToggleSidebar,
-    UnderlineSelection, UnderlineTool, Undo, ZoomIn, ZoomOut,
+    SignatureTool, StrikeoutSelection, StrikeoutTool, ToggleFullScreen, TogglePropertiesPanel,
+    ToggleReadingMode, ToggleSidebar, UnderlineSelection, UnderlineTool, Undo, ZoomIn, ZoomOut,
+    ZoomWindow,
 };
 
 use crate::session;
@@ -81,18 +83,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Quit GPUI PDF", Quit),
             ],
         },
-        Menu {
-            name: "File".into(),
-            items: vec![
-                MenuItem::action("Open…", OpenDocument),
-                MenuItem::separator(),
-                MenuItem::action("Save", SaveDocument),
-                MenuItem::action("Save As…", SaveDocumentAs),
-                MenuItem::separator(),
-                MenuItem::action("Reveal in Finder", RevealInFinder),
-                MenuItem::action("Copy File Path", CopyFilePath),
-            ],
-        },
+        file_menu(),
         Menu {
             name: "Edit".into(),
             items: vec![
@@ -125,6 +116,9 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Fit Page", FitPage),
                 MenuItem::action("Fit Width", FitWidth),
                 MenuItem::separator(),
+                MenuItem::action("Reading Mode", ToggleReadingMode),
+                MenuItem::action("Full Screen Mode", ToggleFullScreen),
+                MenuItem::separator(),
                 MenuItem::action("Toggle Page Thumbnails", ToggleSidebar),
                 MenuItem::action("Toggle Properties Panel", TogglePropertiesPanel),
             ],
@@ -140,6 +134,7 @@ fn app_menus() -> Vec<Menu> {
                 MenuItem::action("Go to Page…", GoToPage),
             ],
         },
+        window_menu(),
         Menu {
             name: "Tools".into(),
             items: vec![
@@ -176,6 +171,35 @@ fn app_menus() -> Vec<Menu> {
     ]
 }
 
+fn file_menu() -> Menu {
+    Menu {
+        name: "File".into(),
+        items: vec![
+            MenuItem::action("Open…", OpenDocument),
+            MenuItem::separator(),
+            MenuItem::action("Save", SaveDocument),
+            MenuItem::action("Save As…", SaveDocumentAs),
+            MenuItem::separator(),
+            MenuItem::action("Document Properties…", DocumentProperties),
+            MenuItem::action("Open in Default Viewer", OpenInDefaultViewer),
+            MenuItem::action("Reveal in Finder", RevealInFinder),
+            MenuItem::action("Copy File Path", CopyFilePath),
+            MenuItem::separator(),
+            MenuItem::action("Close Window", CloseWindow),
+        ],
+    }
+}
+
+fn window_menu() -> Menu {
+    Menu {
+        name: "Window".into(),
+        items: vec![
+            MenuItem::action("Minimize", MinimizeWindow),
+            MenuItem::action("Zoom", ZoomWindow),
+        ],
+    }
+}
+
 /// Tool shortcuts must not fire while a text field owns the keyboard, so
 /// single-letter bindings are scoped to the editor without an active input.
 fn key_bindings() -> Vec<KeyBinding> {
@@ -185,6 +209,8 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-o", OpenDocument, EDITOR),
         KeyBinding::new("cmd-s", SaveDocument, EDITOR),
         KeyBinding::new("cmd-shift-s", SaveDocumentAs, EDITOR),
+        KeyBinding::new("cmd-w", CloseWindow, EDITOR),
+        KeyBinding::new("cmd-d", DocumentProperties, EDITOR),
         KeyBinding::new("cmd-z", Undo, EDITOR),
         KeyBinding::new("cmd-shift-z", Redo, EDITOR),
         KeyBinding::new("cmd-c", CopySelection, CANVAS),
@@ -233,6 +259,9 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("cmd-2", FitWidth, EDITOR),
         KeyBinding::new("cmd-ctrl-s", ToggleSidebar, EDITOR),
         KeyBinding::new("cmd-alt-0", TogglePropertiesPanel, EDITOR),
+        KeyBinding::new("cmd-shift-h", ToggleReadingMode, EDITOR),
+        KeyBinding::new("cmd-ctrl-f", ToggleFullScreen, EDITOR),
+        KeyBinding::new("cmd-m", MinimizeWindow, EDITOR),
         KeyBinding::new("v", SelectTool, CANVAS),
         KeyBinding::new("e", EditTool, CANVAS),
         KeyBinding::new("h", HandTool, CANVAS),
@@ -279,7 +308,11 @@ mod tests {
             ("cmd-z", "Undo"),
             ("cmd-f", "Search"),
             ("cmd-o", "OpenDocument"),
+            ("cmd-w", "CloseWindow"),
+            ("cmd-d", "DocumentProperties"),
             ("cmd-2", "FitWidth"),
+            ("cmd-shift-h", "ToggleReadingMode"),
+            ("cmd-ctrl-f", "ToggleFullScreen"),
             ("v", "SelectTool"),
             ("backspace", "DeleteSelection"),
             ("delete", "DeleteSelection"),

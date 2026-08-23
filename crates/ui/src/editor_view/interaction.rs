@@ -5,10 +5,11 @@ use gpui::{
 use pdf_engine::{EditCommand, TextStamp};
 
 use crate::actions::{
-    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, EditTool, FitPage, FitWidth,
-    HandTool, HighlightTool, NoteTool, RedactTool, Redo, ScrollDown, ScrollPageDown, ScrollPageUp,
-    ScrollToBottom, ScrollToTop, ScrollUp, SelectAllText, SelectTool, ShapeTool, SignatureTool,
-    StrikeoutTool, TogglePropertiesPanel, ToggleSidebar, UnderlineTool, Undo, ZoomIn, ZoomOut,
+    ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, DocumentProperties, EditTool,
+    FitPage, FitWidth, HandTool, HighlightTool, MinimizeWindow, NoteTool, RedactTool, Redo,
+    ScrollDown, ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop, ScrollUp, SelectAllText,
+    SelectTool, ShapeTool, SignatureTool, StrikeoutTool, ToggleFullScreen, TogglePropertiesPanel,
+    ToggleReadingMode, ToggleSidebar, UnderlineTool, Undo, ZoomIn, ZoomOut, ZoomWindow,
 };
 use crate::editor_view::inline_text_input;
 
@@ -1327,6 +1328,77 @@ impl EditorView {
     ) {
         self.panels.properties = !self.panels.properties;
         cx.notify();
+    }
+
+    pub(super) fn document_properties(
+        &mut self,
+        _: &DocumentProperties,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.path.is_none() {
+            self.flash("No document open", Severity::Info, cx);
+            return;
+        }
+        self.reading_mode = false;
+        self.panels.properties = true;
+        self.flash("Document properties", Severity::Info, cx);
+    }
+
+    pub(super) fn toggle_reading_mode(
+        &mut self,
+        _: &ToggleReadingMode,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.reading_mode = !self.reading_mode;
+        self.request_visible_pages();
+        self.flash(
+            if self.reading_mode {
+                "Reading mode"
+            } else {
+                "Exited reading mode"
+            },
+            Severity::Info,
+            cx,
+        );
+    }
+
+    pub(super) fn toggle_full_screen(
+        &mut self,
+        _: &ToggleFullScreen,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entering = !window.is_fullscreen();
+        window.toggle_fullscreen();
+        self.flash(
+            if entering {
+                "Full screen"
+            } else {
+                "Exited full screen"
+            },
+            Severity::Info,
+            cx,
+        );
+    }
+
+    pub(super) fn minimize_window(
+        _: &mut Self,
+        _: &MinimizeWindow,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        window.minimize_window();
+    }
+
+    pub(super) fn zoom_window(
+        _: &mut Self,
+        _: &ZoomWindow,
+        window: &mut Window,
+        _: &mut Context<Self>,
+    ) {
+        window.zoom_window();
     }
 
     pub(super) fn has_selection(&self) -> bool {

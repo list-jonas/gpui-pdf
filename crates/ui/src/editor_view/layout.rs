@@ -748,6 +748,7 @@ impl EditorView {
 
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.install_close_guard(window, cx);
         // Rendering is the one place every page change funnels through.
         self.sync_page_input(window, cx);
         // Page bounds only exist after the first layout pass, so this is the
@@ -757,8 +758,11 @@ impl Render for EditorView {
             .key_context("PdfEditor")
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(Self::open_picker))
+            .on_action(cx.listener(Self::open_in_default_viewer))
+            .on_action(cx.listener(Self::close_window))
             .on_action(cx.listener(Self::save_document))
             .on_action(cx.listener(Self::save_picker))
+            .on_action(cx.listener(Self::document_properties))
             .on_action(cx.listener(Self::previous_page))
             .on_action(cx.listener(Self::next_page))
             .on_action(cx.listener(Self::first_page))
@@ -791,6 +795,10 @@ impl Render for EditorView {
             .on_action(cx.listener(Self::scroll_to_bottom))
             .on_action(cx.listener(Self::toggle_sidebar))
             .on_action(cx.listener(Self::toggle_properties_panel))
+            .on_action(cx.listener(Self::toggle_reading_mode))
+            .on_action(cx.listener(Self::toggle_full_screen))
+            .on_action(cx.listener(Self::minimize_window))
+            .on_action(cx.listener(Self::zoom_window))
             .on_action(cx.listener(Self::open_search))
             .on_action(cx.listener(Self::next_search_result))
             .on_action(cx.listener(Self::previous_search_result))
@@ -820,22 +828,26 @@ impl Render for EditorView {
             .bg(tint(crate::theme::WINDOW_FROST))
             .text_color(solid(TEXT))
             .child(self.render_title_bar(cx))
-            .child(self.render_toolbar(cx))
+            .when(!self.reading_mode, |root| {
+                root.child(self.render_toolbar(cx))
+            })
             .child(
                 div()
                     .relative()
                     .flex()
                     .flex_1()
                     .min_h_0()
-                    .when(self.panels.sidebar, |row| {
+                    .when(self.panels.sidebar && !self.reading_mode, |row| {
                         row.child(self.render_left_panel(cx))
                     })
                     .child(self.render_document(cx))
                     .child(self.render_floating_controls(cx))
-                    .when(self.panels.properties, |row| {
+                    .when(self.panels.properties && !self.reading_mode, |row| {
                         row.child(self.render_properties(cx))
                     }),
             )
-            .child(self.render_status_bar(cx))
+            .when(!self.reading_mode, |root| {
+                root.child(self.render_status_bar(cx))
+            })
     }
 }

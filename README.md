@@ -90,6 +90,7 @@ cargo run -p gpui-pdf -- "$PWD/handout.pdf"
 | Action | Shortcut |
 | --- | --- |
 | Open / Save / Save As | `Cmd+O` / `Cmd+S` / `Cmd+Shift+S` |
+| Close / Document properties | `Cmd+W` / `Cmd+D` |
 | Undo / Redo | `Cmd+Z` / `Cmd+Shift+Z` |
 | Find / Next / Previous | `Cmd+F` / `Cmd+G` / `Cmd+Shift+G` |
 | Scroll | `↑` / `↓`, `Space` / `Shift+Space`, `PageUp` / `PageDown` |
@@ -101,6 +102,7 @@ cargo run -p gpui-pdf -- "$PWD/handout.pdf"
 | Copy / Select all text | `Cmd+C` / `Cmd+A` |
 | Delete selected annotation | `Delete` / `Backspace` |
 | Toggle thumbnails / properties | `Cmd+Ctrl+S` / `Cmd+Alt+0` |
+| Reading mode / Full screen | `Cmd+Shift+H` / `Cmd+Ctrl+F` |
 | Cancel current action | `Esc` |
 | Tools | `V` select, `H` hand, `E` edit, `U` highlight, `L` underline, `K` strike, `T` text, `N` comment, `S` sign, `G` shape, `R` redact |
 

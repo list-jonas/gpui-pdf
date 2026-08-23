@@ -46,6 +46,20 @@ pub(super) enum Severity {
     Error,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum DocumentSecurity {
+    Unknown,
+    Unencrypted,
+    Encrypted,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum CloseState {
+    Uninstalled,
+    Ready,
+    AfterSave,
+}
+
 pub struct EditorView {
     requests: Sender<EditorRequest>,
     path: Option<PathBuf>,
@@ -57,6 +71,7 @@ pub struct EditorView {
     detail: Option<SharedString>,
     extracted_text: Option<SharedString>,
     pdf_version: (u8, u8),
+    security: DocumentSecurity,
     pages: Vec<DocumentPage>,
     loaded_pages: usize,
     /// Identifies the open document, so late results from a previous file are
@@ -99,6 +114,8 @@ pub struct EditorView {
     _page_subscription: Subscription,
     thumbnail_scroll: ScrollHandle,
     panels: PanelVisibility,
+    reading_mode: bool,
+    close_state: CloseState,
     status_reset: Option<Task<()>>,
     /// Page position the last context menu was opened at, so its commands act
     /// where the user right-clicked rather than on the current page origin.
@@ -170,6 +187,7 @@ impl EditorView {
             detail: None,
             extracted_text: None,
             pdf_version: (0, 0),
+            security: DocumentSecurity::Unknown,
             pages: Vec::new(),
             loaded_pages: 0,
             token: 0,
@@ -202,6 +220,8 @@ impl EditorView {
             _page_subscription: page_subscription,
             thumbnail_scroll: ScrollHandle::new(),
             panels: PanelVisibility::default(),
+            reading_mode: false,
+            close_state: CloseState::Uninstalled,
             status_reset: None,
             menu_target: None,
         }
@@ -271,9 +291,15 @@ impl EditorView {
                 self.token = token;
                 self.invalidate_rasters();
                 self.flash(format!("Saved {}", file_name(&path)), Severity::Info, cx);
+                if self.close_state == CloseState::AfterSave {
+                    window.remove_window();
+                }
             }
             EditorUpdate::Failed(message) => {
                 self.busy = false;
+                if self.close_state == CloseState::AfterSave {
+                    self.close_state = CloseState::Ready;
+                }
                 self.flash(message, Severity::Error, cx);
             }
         }
@@ -297,12 +323,20 @@ impl EditorView {
             initial_page,
         } = opened;
         self.token = token;
+        if self.close_state == CloseState::AfterSave {
+            self.close_state = CloseState::Ready;
+        }
         self.background_requested = false;
         self.settled_viewport = None;
         self.path = Some(path.clone());
         self.page_index = initial_page;
         self.page_count = document.page_count;
         self.pdf_version = document.pdf_version;
+        self.security = if document.encrypted {
+            DocumentSecurity::Encrypted
+        } else {
+            DocumentSecurity::Unencrypted
+        };
         self.pages = pages.into_iter().map(DocumentPage::placeholder).collect();
         self.loaded_pages = 0;
         self.busy = true;
