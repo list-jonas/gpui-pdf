@@ -105,6 +105,12 @@ pub fn scripted_form_pdf() -> Vec<u8> {
     ])
 }
 
+/// Real Austrian government form using date actions, checkboxes and
+/// Acrobat-specific helper scripts.
+pub fn austrian_neufoe2_pdf() -> Vec<u8> {
+    include_bytes!("../../../fixtures/pdf/at-neufoe2.pdf").to_vec()
+}
+
 pub fn multi_page_pdf() -> Vec<u8> {
     let font_id = 3 + MULTI_PAGE_COUNT * 2;
     let page_ids: Vec<_> = (0..MULTI_PAGE_COUNT).map(|index| 3 + index * 2).collect();

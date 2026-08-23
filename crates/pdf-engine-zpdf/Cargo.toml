@@ -16,3 +16,7 @@ test-support = { path = "../test-support" }
 
 [lints]
 workspace = true
+
+[[example]]
+name = "probe"
+test = false

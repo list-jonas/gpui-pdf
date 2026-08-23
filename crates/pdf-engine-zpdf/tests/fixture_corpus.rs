@@ -4,6 +4,7 @@ use pdf_engine::{
     OpenRequest, Password, PdfDocument, PdfEngine, RenderRequest, ShapeKind, TextStamp,
 };
 use pdf_engine_zpdf::ZpdfEngine;
+use test_support::austrian_neufoe2_pdf;
 use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, scripted_form_pdf, text_pdf};
 use zpdf::PdfDocument as NativeDocument;
 use zpdf_writer::{EncryptionConfig, RewriteOptions, rewrite_pdf};
@@ -257,6 +258,62 @@ fn multi_state_checkbox_round_trips_exact_export_value() {
             .unwrap()
             .value,
         "2"
+    );
+}
+
+#[test]
+fn austrian_neufoe2_form_loads_and_round_trips() {
+    let mut document = ZpdfEngine
+        .open(OpenRequest::new(austrian_neufoe2_pdf()))
+        .unwrap();
+    let fields = document.form_fields().unwrap();
+
+    assert_eq!(fields.len(), 41);
+    for page_index in 0..2 {
+        assert!(
+            document
+                .render_page(RenderRequest {
+                    page_index,
+                    scale: 1.0,
+                })
+                .unwrap()
+                .is_valid()
+        );
+    }
+    let date = fields
+        .iter()
+        .find(|field| field.name == "Tagesdatum2")
+        .unwrap();
+    assert_eq!(
+        date.validation,
+        Some(FormValidation::Date {
+            format: "dd.mm.yyyy".to_owned(),
+            display_format: "TT.MM.JJJJ".to_owned(),
+            example: "11.03.2007".to_owned(),
+            reject_future: true,
+            minimum: "01.01.1850".to_owned(),
+            maximum: "31.12.2200".to_owned(),
+        })
+    );
+
+    let output = document
+        .export(&[EditCommand::FillForm {
+            name: "Tagesdatum2".to_owned(),
+            value: "23.08.2026".to_owned(),
+        }])
+        .unwrap();
+    let fields = ZpdfEngine
+        .open(OpenRequest::new(output))
+        .unwrap()
+        .form_fields()
+        .unwrap();
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name == "Tagesdatum2")
+            .unwrap()
+            .value,
+        "23.08.2026"
     );
 }
 
