@@ -146,6 +146,11 @@ impl ZpdfDocument {
 
     fn field_widgets(&self, field: &zpdf::FormField) -> Vec<FormWidget> {
         let mut widgets = Vec::new();
+        let field_hint = self
+            .object_dictionary(field.field_id)
+            .and_then(|dictionary| dictionary.get("TU").cloned())
+            .and_then(|object| resolve_object(self.inner.file(), &object))
+            .and_then(|object| pdf_string(&object));
         for page_index in 0..self.inner.page_count() {
             let Ok(page) = self.inner.page(page_index) else {
                 continue;
@@ -166,6 +171,12 @@ impl ZpdfDocument {
                     page_index,
                     rect,
                     visible: dictionary.get_i64("F").unwrap_or(0) & (1 | 2 | 32) == 0,
+                    hint: dictionary
+                        .get("TU")
+                        .cloned()
+                        .and_then(|object| resolve_object(self.inner.file(), &object))
+                        .and_then(|object| pdf_string(&object))
+                        .or_else(|| field_hint.clone()),
                     on_value: (field.kind == zpdf::FieldKind::Button)
                         .then(|| button_on_value(self.inner.file(), &dictionary))
                         .flatten(),
@@ -227,7 +238,11 @@ fn pdf_string(object: &zpdf::PdfObject) -> Option<String> {
                 .collect(),
         );
     }
-    Some(String::from_utf8_lossy(bytes).into_owned())
+    // PDF text strings without a UTF-16 BOM use PDFDocEncoding. Its common
+    // Latin range is byte-compatible with Unicode; mapping bytes directly
+    // preserves legacy form hints such as `0xfc` (`ü`) that UTF-8 decoding
+    // would replace with U+FFFD.
+    Some(bytes.iter().map(|&byte| char::from(byte)).collect())
 }
 
 fn action_script(file: &zpdf::PdfFile, object: &zpdf::PdfObject) -> Option<String> {

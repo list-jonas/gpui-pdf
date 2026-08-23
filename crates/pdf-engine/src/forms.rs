@@ -73,6 +73,8 @@ pub struct FormWidget {
     pub rect: PdfRect,
     /// False for annotations marked Invisible, Hidden, or `NoView`.
     pub visible: bool,
+    /// Acrobat-style tooltip from the widget's `/TU` text string.
+    pub hint: Option<String>,
     /// Exact non-Off appearance state for this widget (for example `1` or
     /// `Yes`). Acrobat persists this name in both `/V` and `/AS`.
     pub on_value: Option<String>,

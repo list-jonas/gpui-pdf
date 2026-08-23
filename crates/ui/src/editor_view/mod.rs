@@ -362,11 +362,7 @@ impl EditorView {
             .into_iter()
             .map(|field| {
                 let value = self.pending_form_value(&field);
-                let input = if field.multiline {
-                    inline_text_input("", &value, window, cx)
-                } else {
-                    input("", &value, window, cx)
-                };
+                let input = form_input(&field, &value, window, cx);
                 let field_name = field.name.clone();
                 let subscription = cx.subscribe_in(
                     &input,
@@ -470,12 +466,18 @@ impl EditorView {
         let Some(item) = self.forms.iter().find(|item| item.field.name == field_name) else {
             return;
         };
-        let Some(validation) = item.field.validation.clone() else {
+        let field = item.field.clone();
+        let value = item.value(cx);
+        let original = field.value.clone();
+        let input = item.input.clone();
+        if field.required && value.trim().is_empty() {
+            input.update(cx, |state, cx| state.set_value(original, window, cx));
+            self.form_alert("Please fill out this field.".to_owned(), window, cx);
+            return;
+        }
+        let Some(validation) = field.validation.clone() else {
             return;
         };
-        let value = item.value(cx);
-        let original = item.field.value.clone();
-        let input = item.input.clone();
         let result = match &validation {
             FormValidation::Date {
                 display_format,
@@ -649,6 +651,30 @@ pub(super) fn inline_text_input(
             .multi_line(true)
             .placeholder(placeholder.to_owned())
             .default_value(default.to_owned())
+    })
+}
+
+fn form_input(
+    field: &FormField,
+    default: &str,
+    window: &mut Window,
+    cx: &mut Context<EditorView>,
+) -> Entity<InputState> {
+    let multiline = field.multiline;
+    let password = field.password && !multiline;
+    let max_len = field.max_len;
+    cx.new(|cx| {
+        let mut state = InputState::new(window, cx)
+            .placeholder(String::new())
+            .default_value(default.to_owned())
+            .multi_line(multiline);
+        if password {
+            state = state.masked(true);
+        }
+        if let Some(max_len) = max_len {
+            state = state.validate(move |value, _| value.chars().count() <= max_len);
+        }
+        state
     })
 }
 

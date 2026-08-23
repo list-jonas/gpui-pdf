@@ -5,6 +5,7 @@ use gpui::{
 };
 use gpui_component::input::Input;
 use gpui_component::menu::ContextMenuExt;
+use gpui_component::tooltip::Tooltip;
 use pdf_engine::{EditCommand, FormAction, FormButtonKind, FormFieldKind, ShapeKind};
 
 use crate::EditorView;
@@ -188,48 +189,52 @@ impl EditorView {
                     let checked = on_value
                         .as_deref()
                         .is_some_and(|on_value| item.value(cx) == on_value);
-                    page = page.child(
-                        positioned(rect)
-                            .id((
-                                "form-button",
-                                field_index.saturating_mul(1000) + widget_index,
-                            ))
-                            .occlude()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_size(px(rect.height * 1.1))
-                            .text_color(solid(PAGE_TEXT))
-                            .when(button_kind != FormButtonKind::Push, |this| {
-                                this.bg(solid(0x00ff_ffff))
-                                    .border_1()
-                                    .border_color(solid(PAGE_TEXT))
-                            })
-                            .when(
-                                button_kind == FormButtonKind::Radio,
-                                gpui::Styled::rounded_full,
-                            )
-                            .when(checked && button_kind == FormButtonKind::CheckBox, |this| {
-                                this.child("×")
-                            })
-                            .when(checked && button_kind == FormButtonKind::Radio, |this| {
-                                this.child("●")
-                            })
-                            .when(read_only, gpui::Styled::cursor_not_allowed)
-                            .when(!read_only, gpui::Styled::cursor_pointer)
-                            .when(!read_only, |this| {
-                                this.on_click(cx.listener(move |view, _, window, cx| {
-                                    view.activate_form_button(
-                                        &name,
-                                        on_value.as_deref(),
-                                        button_kind,
-                                        action.as_ref(),
-                                        window,
-                                        cx,
-                                    );
-                                }))
-                            }),
-                    );
+                    let mut overlay = positioned(rect)
+                        .id((
+                            "form-button",
+                            field_index.saturating_mul(1000) + widget_index,
+                        ))
+                        .occlude()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_size(px(rect.height * 1.1))
+                        .text_color(solid(PAGE_TEXT))
+                        .when(button_kind != FormButtonKind::Push, |this| {
+                            this.bg(solid(0x00ff_ffff))
+                                .border_1()
+                                .border_color(solid(PAGE_TEXT))
+                        })
+                        .when(
+                            button_kind == FormButtonKind::Radio,
+                            gpui::Styled::rounded_full,
+                        )
+                        .when(checked && button_kind == FormButtonKind::CheckBox, |this| {
+                            this.child("×")
+                        })
+                        .when(checked && button_kind == FormButtonKind::Radio, |this| {
+                            this.child("●")
+                        })
+                        .when(read_only, gpui::Styled::cursor_not_allowed)
+                        .when(!read_only, gpui::Styled::cursor_pointer)
+                        .when(!read_only, |this| {
+                            this.on_click(cx.listener(move |view, _, window, cx| {
+                                view.activate_form_button(
+                                    &name,
+                                    on_value.as_deref(),
+                                    button_kind,
+                                    action.as_ref(),
+                                    window,
+                                    cx,
+                                );
+                            }))
+                        });
+                    if let Some(hint) = widget.hint.clone() {
+                        overlay = overlay.tooltip(move |window, cx| {
+                            Tooltip::new(hint.clone()).build(window, cx)
+                        });
+                    }
+                    page = page.child(overlay);
                 }
             }
         }
@@ -271,6 +276,7 @@ impl EditorView {
                         self.zoom,
                         field_index,
                         widget_index,
+                        widget.hint.as_deref(),
                         cx,
                     );
                     continue;
@@ -278,27 +284,31 @@ impl EditorView {
                 // Keep field text proportional to its widget at every zoom.
                 // A fixed min/max would make text drift relative to the PDF.
                 let font_size = form_text_size(rect.height);
-                page = page.child(
-                    positioned(rect)
-                        .rounded_sm()
-                        .bg(if disabled {
-                            rgba(0x9ca3_ad1a)
-                        } else {
-                            rgba(0x4e9c_ff2e)
-                        })
-                        .child(
-                            Input::new(&item.input)
-                                .disabled(disabled)
-                                .size_full()
-                                .appearance(false)
-                                .bordered(false)
-                                .focus_bordered(false)
-                                .px(px(2.0))
-                                .py(px(0.0))
-                                .text_color(solid(PAGE_TEXT))
-                                .text_size(px(font_size)),
-                        ),
-                );
+                let mut overlay = positioned(rect)
+                    .id(("form-input", field_index * 1000 + widget_index))
+                    .rounded_sm()
+                    .bg(if disabled {
+                        rgba(0x9ca3_ad1a)
+                    } else {
+                        rgba(0x4e9c_ff2e)
+                    })
+                    .child(
+                        Input::new(&item.input)
+                            .disabled(disabled)
+                            .size_full()
+                            .appearance(false)
+                            .bordered(false)
+                            .focus_bordered(false)
+                            .px(px(2.0))
+                            .py(px(0.0))
+                            .text_color(solid(PAGE_TEXT))
+                            .text_size(px(font_size)),
+                    );
+                if let Some(hint) = widget.hint.clone() {
+                    overlay = overlay
+                        .tooltip(move |window, cx| Tooltip::new(hint.clone()).build(window, cx));
+                }
+                page = page.child(overlay);
             }
         }
         page

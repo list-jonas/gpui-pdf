@@ -111,6 +111,17 @@ pub fn austrian_neufoe2_pdf() -> Vec<u8> {
     include_bytes!("../../../fixtures/pdf/at-neufoe2.pdf").to_vec()
 }
 
+/// Real IRS Form 1040 (US federal public domain). Dense text grid plus many
+/// checkbox groups produced by Adobe form tooling.
+pub fn irs_f1040_pdf() -> Vec<u8> {
+    include_bytes!("../../../fixtures/pdf/f1040.pdf").to_vec()
+}
+
+/// Real USCIS Form I-9 (US federal public domain) with 59-option state dropdowns.
+pub fn uscis_i9_pdf() -> Vec<u8> {
+    include_bytes!("../../../fixtures/pdf/irs_i9.pdf").to_vec()
+}
+
 /// Adobe-style invoice form using `AFNumber_Format`/`AFNumber_Keystroke`
 /// and a calculation-order field. Generated, so redistribution stays clean.
 pub fn calculated_invoice_pdf() -> Vec<u8> {

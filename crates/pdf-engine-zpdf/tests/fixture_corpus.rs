@@ -7,6 +7,7 @@ use pdf_engine_zpdf::ZpdfEngine;
 use test_support::austrian_neufoe2_pdf;
 use test_support::calculated_invoice_pdf;
 use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, scripted_form_pdf, text_pdf};
+use test_support::{irs_f1040_pdf, uscis_i9_pdf};
 use zpdf::PdfDocument as NativeDocument;
 use zpdf_writer::{EncryptionConfig, RewriteOptions, rewrite_pdf};
 
@@ -286,6 +287,14 @@ fn austrian_neufoe2_form_loads_and_round_trips() {
         .find(|field| field.name == "Tagesdatum2")
         .unwrap();
     assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name == "Set_Tagesdatum2")
+            .and_then(|field| field.widgets.first())
+            .and_then(|widget| widget.hint.as_deref()),
+        Some("Tagesdatum einfügen")
+    );
+    assert_eq!(
         date.validation,
         Some(FormValidation::Date {
             format: "dd.mm.yyyy".to_owned(),
@@ -348,6 +357,57 @@ fn calculated_invoice_exposes_calculation_field() {
         .form_fields()
         .unwrap();
     assert_eq!(fields[0].value, "100");
+}
+
+#[test]
+fn real_world_government_forms_load_render_and_fill() {
+    for bytes in [irs_f1040_pdf(), uscis_i9_pdf()] {
+        let mut document = ZpdfEngine.open(OpenRequest::new(bytes)).unwrap();
+        let fields = document.form_fields().unwrap();
+        assert!(!fields.is_empty());
+        assert!(
+            document
+                .render_page(RenderRequest {
+                    page_index: 0,
+                    scale: 1.0
+                })
+                .unwrap()
+                .is_valid()
+        );
+
+        let fillable: Vec<_> = fields
+            .iter()
+            .filter(|field| !field.read_only && field.kind == pdf_engine::FormFieldKind::Text)
+            .take(5)
+            .map(|field| (field.name.clone(), "42".to_owned()))
+            .collect();
+        if fillable.is_empty() {
+            continue;
+        }
+        let edits: Vec<_> = fillable
+            .iter()
+            .map(|(name, value)| EditCommand::FillForm {
+                name: name.clone(),
+                value: value.clone(),
+            })
+            .collect();
+        let output = document.export(&edits).unwrap();
+        let fields = ZpdfEngine
+            .open(OpenRequest::new(output))
+            .unwrap()
+            .form_fields()
+            .unwrap();
+        for (name, value) in &fillable {
+            assert_eq!(
+                fields
+                    .iter()
+                    .find(|field| field.name == *name)
+                    .unwrap()
+                    .value,
+                *value
+            );
+        }
+    }
 }
 
 #[test]
