@@ -29,6 +29,9 @@ const ZOOM_STOPS: [f32; 12] = [
 ];
 /// Minimum drag size (PDF points) before a region edit is created.
 const MIN_REGION: f64 = 4.0;
+/// A press/release pair that moved less than this is a click, not a drag.
+/// Clicking must never select the nearest text run; only dragging selects.
+const MIN_DRAG_DISTANCE: f64 = 1.0;
 /// How far (PDF points) a pointer may sit from a text run and still select it.
 const SELECTION_TOLERANCE: f64 = 24.0;
 /// Pixels moved by a single arrow-key scroll.
@@ -1078,21 +1081,40 @@ impl EditorView {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // A press/release pair without real movement is a click. It must never
+        // select or mark the nearest character; only an actual drag does.
+        let is_click = start.distance_to(&current) < MIN_DRAG_DISTANCE;
         match self.tool {
             Tool::Select | Tool::Edit => {
-                self.select_text_range(page_index, start, current_page, current);
+                if is_click {
+                    self.clear_selection();
+                } else {
+                    self.select_text_range(page_index, start, current_page, current);
+                }
             }
             Tool::Highlight => {
-                self.select_text_range(page_index, start, current_page, current);
-                self.markup_selection(Markup::Highlight, window, cx);
+                if is_click {
+                    self.clear_selection();
+                } else {
+                    self.select_text_range(page_index, start, current_page, current);
+                    self.markup_selection(Markup::Highlight, window, cx);
+                }
             }
             Tool::Underline => {
-                self.select_text_range(page_index, start, current_page, current);
-                self.markup_selection(Markup::Underline, window, cx);
+                if is_click {
+                    self.clear_selection();
+                } else {
+                    self.select_text_range(page_index, start, current_page, current);
+                    self.markup_selection(Markup::Underline, window, cx);
+                }
             }
             Tool::Strikeout => {
-                self.select_text_range(page_index, start, current_page, current);
-                self.markup_selection(Markup::Strikeout, window, cx);
+                if is_click {
+                    self.clear_selection();
+                } else {
+                    self.select_text_range(page_index, start, current_page, current);
+                    self.markup_selection(Markup::Strikeout, window, cx);
+                }
             }
             Tool::Shape => {
                 if let Some(rect) = (DragState::Region {

@@ -10,6 +10,11 @@ impl PdfPoint {
     pub const fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
+
+    /// Euclidean distance between two points.
+    pub fn distance_to(&self, other: &Self) -> f64 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

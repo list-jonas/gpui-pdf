@@ -7,8 +7,8 @@ use gpui_component::input::Input;
 use gpui_component::menu::ContextMenuExt;
 use pdf_engine::{EditCommand, FormAction, FormButtonKind, FormFieldKind, ShapeKind};
 
-use crate::actions::OpenDocument;
 use crate::EditorView;
+use crate::actions::OpenDocument;
 
 use super::geometry::{RENDER_SCALE, overlay_point, overlay_rect, ui_f32};
 use super::model::{DragState, OverlayRect, Tool};
