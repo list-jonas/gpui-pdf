@@ -14,8 +14,11 @@ use crate::cache::{PageCache, RenderedContent};
 use crate::convert::{map_engine_error, map_render_error, page_geometry};
 
 const FF_READ_ONLY: i64 = 1;
+const FF_REQUIRED: i64 = 1 << 1;
+const FF_MULTILINE: i64 = 1 << 12;
 const FF_RADIO: i64 = 1 << 15;
 const FF_PUSH_BUTTON: i64 = 1 << 16;
+const FF_MULTI_SELECT: i64 = 1 << 21;
 
 pub struct ZpdfDocument {
     inner: zpdf::PdfDocument,
@@ -115,10 +118,17 @@ impl ZpdfDocument {
                 Some(zpdf::FieldValue::Text(value) | zpdf::FieldValue::Name(value)) => {
                     value.clone()
                 }
-                Some(zpdf::FieldValue::List(values)) => values.join("\n"),
+                Some(zpdf::FieldValue::List(values)) => values.join("\u{1f}"),
                 None => String::new(),
             },
             options: field.options.clone(),
+            max_len: field.max_len.and_then(|len| usize::try_from(len).ok()),
+            multiline: field.flags & FF_MULTILINE != 0,
+            password: field.is_password(),
+            comb: field.is_comb(),
+            multi_select: field.kind == zpdf::FieldKind::Choice
+                && field.flags & FF_MULTI_SELECT != 0,
+            required: field.flags & FF_REQUIRED != 0,
             read_only: field.flags & FF_READ_ONLY != 0,
             button_kind: (kind == FormFieldKind::Button).then_some({
                 if field.flags & FF_PUSH_BUTTON != 0 {

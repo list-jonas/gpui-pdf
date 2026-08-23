@@ -5,6 +5,7 @@ use pdf_engine::{
 };
 use pdf_engine_zpdf::ZpdfEngine;
 use test_support::austrian_neufoe2_pdf;
+use test_support::calculated_invoice_pdf;
 use test_support::{form_pdf, image_pdf, malformed_pdf, rotated_pdf, scripted_form_pdf, text_pdf};
 use zpdf::PdfDocument as NativeDocument;
 use zpdf_writer::{EncryptionConfig, RewriteOptions, rewrite_pdf};
@@ -315,6 +316,38 @@ fn austrian_neufoe2_form_loads_and_round_trips() {
             .value,
         "23.08.2026"
     );
+}
+
+#[test]
+fn calculated_invoice_exposes_calculation_field() {
+    let mut document = ZpdfEngine
+        .open(OpenRequest::new(calculated_invoice_pdf()))
+        .unwrap();
+    let fields = document.form_fields().unwrap();
+
+    assert_eq!(fields.len(), 2);
+    assert!(
+        document
+            .render_page(RenderRequest {
+                page_index: 0,
+                scale: 1.0,
+            })
+            .unwrap()
+            .is_valid()
+    );
+
+    let output = document
+        .export(&[EditCommand::FillForm {
+            name: "amount".to_owned(),
+            value: "100".to_owned(),
+        }])
+        .unwrap();
+    let fields = ZpdfEngine
+        .open(OpenRequest::new(output))
+        .unwrap()
+        .form_fields()
+        .unwrap();
+    assert_eq!(fields[0].value, "100");
 }
 
 #[test]

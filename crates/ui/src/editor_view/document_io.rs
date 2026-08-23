@@ -175,7 +175,7 @@ impl EditorView {
         .detach();
     }
 
-    fn capture_form_edits(&mut self, cx: &App) {
+    pub(crate) fn capture_form_edits(&mut self, cx: &App) {
         let values: Vec<_> = self
             .forms
             .iter()

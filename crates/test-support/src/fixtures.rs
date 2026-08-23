@@ -111,6 +111,32 @@ pub fn austrian_neufoe2_pdf() -> Vec<u8> {
     include_bytes!("../../../fixtures/pdf/at-neufoe2.pdf").to_vec()
 }
 
+/// Adobe-style invoice form using `AFNumber_Format`/`AFNumber_Keystroke`
+/// and a calculation-order field. Generated, so redistribution stays clean.
+pub fn calculated_invoice_pdf() -> Vec<u8> {
+    build_pdf(&[
+        b"<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 180] /Resources << >> \
+          /Contents 4 0 R /Annots [6 0 R 7 0 R] >>"
+            .to_vec(),
+        stream("", b""),
+        b"<< /Fields [6 0 R 7 0 R] /CO [6 0 R] /DA (/Helv 10 Tf 0 g) >>".to_vec(),
+        br#"<< /Type /Annot /Subtype /Widget /FT /Tx /T (amount)
+          /Rect [20 120 100 140] /P 3 0 R
+          /AA << /F << /S /JavaScript
+          /JS (AFNumber_Format(2, 0, 0, 0, "\u0024 ", false);) >>
+          /K << /S /JavaScript
+          /JS (AFNumber_Keystroke(2, 0, 0, 0, "\u0024 ", false);) >> >> >>"#
+            .to_vec(),
+        br#"<< /Type /Annot /Subtype /Widget /FT /Tx /Ff 1 /T (total)
+          /Rect [20 80 100 100] /P 3 0 R
+          /AA << /C << /S /JavaScript
+          /JS (event.value=this.getField("amount").value*1.2;) >> >> >>"#
+            .to_vec(),
+    ])
+}
+
 pub fn multi_page_pdf() -> Vec<u8> {
     let font_id = 3 + MULTI_PAGE_COUNT * 2;
     let page_ids: Vec<_> = (0..MULTI_PAGE_COUNT).map(|index| 3 + index * 2).collect();

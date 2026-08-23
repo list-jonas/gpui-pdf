@@ -148,11 +148,25 @@ impl EditorView {
 
     fn add_form_overlays(
         &self,
-        mut page: gpui::Div,
+        page: gpui::Div,
         page_index: usize,
         cx: &mut Context<Self>,
     ) -> gpui::Div {
         let geometry = self.pages[page_index].metadata.geometry;
+        let view = cx.entity();
+        let button_page = self.button_overlays(page, page_index, geometry, cx);
+        let cx = &mut *cx;
+        self.input_and_choice_overlays(button_page, page_index, geometry, &view, cx)
+    }
+
+    fn button_overlays(
+        &self,
+        page: gpui::Div,
+        page_index: usize,
+        geometry: document_core::PageGeometry,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let mut page = page;
         for (field_index, item) in self.forms.iter().enumerate() {
             for (widget_index, widget) in item
                 .field
@@ -216,37 +230,75 @@ impl EditorView {
                                 }))
                             }),
                     );
-                } else {
-                    let disabled =
-                        item.field.read_only || item.field.kind == FormFieldKind::Signature;
-                    if disabled {
-                        continue;
-                    }
-                    // Keep field text proportional to its widget at every zoom.
-                    // A fixed min/max would make text drift relative to the PDF.
-                    let font_size = form_text_size(rect.height);
-                    page = page.child(
-                        positioned(rect)
-                            .rounded_sm()
-                            .bg(if disabled {
-                                rgba(0x9ca3_ad1a)
-                            } else {
-                                rgba(0x4e9c_ff2e)
-                            })
-                            .child(
-                                Input::new(&item.input)
-                                    .disabled(disabled)
-                                    .size_full()
-                                    .appearance(false)
-                                    .bordered(false)
-                                    .focus_bordered(false)
-                                    .px(px(2.0))
-                                    .py(px(0.0))
-                                    .text_color(solid(PAGE_TEXT))
-                                    .text_size(px(font_size)),
-                            ),
-                    );
                 }
+            }
+        }
+        page
+    }
+
+    fn input_and_choice_overlays(
+        &self,
+        page: gpui::Div,
+        page_index: usize,
+        geometry: document_core::PageGeometry,
+        view: &gpui::Entity<EditorView>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        let mut page = page;
+        for (field_index, item) in self.forms.iter().enumerate() {
+            for (widget_index, widget) in item
+                .field
+                .widgets
+                .iter()
+                .filter(|widget| widget.page_index == page_index && widget.visible)
+                .enumerate()
+            {
+                let rect = overlay_rect(widget.rect, geometry, self.zoom);
+                if item.field.kind == FormFieldKind::Button {
+                    continue;
+                }
+                let disabled = item.field.read_only || item.field.kind == FormFieldKind::Signature;
+                if disabled {
+                    continue;
+                }
+                if item.field.kind == FormFieldKind::Choice && !item.field.options.is_empty() {
+                    page = super::form_choice::add_form_choice_overlay(
+                        page,
+                        view,
+                        item,
+                        widget.rect,
+                        geometry,
+                        self.zoom,
+                        field_index,
+                        widget_index,
+                        cx,
+                    );
+                    continue;
+                }
+                // Keep field text proportional to its widget at every zoom.
+                // A fixed min/max would make text drift relative to the PDF.
+                let font_size = form_text_size(rect.height);
+                page = page.child(
+                    positioned(rect)
+                        .rounded_sm()
+                        .bg(if disabled {
+                            rgba(0x9ca3_ad1a)
+                        } else {
+                            rgba(0x4e9c_ff2e)
+                        })
+                        .child(
+                            Input::new(&item.input)
+                                .disabled(disabled)
+                                .size_full()
+                                .appearance(false)
+                                .bordered(false)
+                                .focus_bordered(false)
+                                .px(px(2.0))
+                                .py(px(0.0))
+                                .text_color(solid(PAGE_TEXT))
+                                .text_size(px(font_size)),
+                        ),
+                );
             }
         }
         page
@@ -708,7 +760,7 @@ impl EditorView {
         }
     }
 
-    fn set_form_value(
+    pub(crate) fn set_form_value(
         &mut self,
         field_name: &str,
         value: &str,
@@ -768,7 +820,7 @@ fn text_origin(
     (left, baseline - display_text_size(size, zoom))
 }
 
-fn form_text_size(widget_height: f32) -> f32 {
+pub(super) fn form_text_size(widget_height: f32) -> f32 {
     widget_height * 0.6
 }
 
@@ -782,7 +834,7 @@ fn format_today(format: &str) -> String {
     Local::now().date_naive().format(chrono_format).to_string()
 }
 
-fn positioned(rect: OverlayRect) -> gpui::Div {
+pub(super) fn positioned(rect: OverlayRect) -> gpui::Div {
     div()
         .absolute()
         .left(px(rect.left))

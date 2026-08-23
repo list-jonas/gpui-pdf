@@ -1195,7 +1195,11 @@ impl EditorView {
 
     /// Selects the whole word under the pointer for a double click. Returns
     /// false when no text sits under (or near) the pointer.
-    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    #[allow(
+        clippy::cast_precision_loss,
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss
+    )]
     fn select_word_at(&mut self, page_index: usize, point: document_core::PdfPoint) -> bool {
         let Some(page) = self.pages.get(page_index) else {
             return false;

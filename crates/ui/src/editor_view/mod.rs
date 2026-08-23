@@ -3,6 +3,7 @@ mod context_menus;
 mod document_io;
 mod document_page;
 mod edits;
+mod form_choice;
 mod geometry;
 mod gestures;
 mod history;
@@ -361,7 +362,11 @@ impl EditorView {
             .into_iter()
             .map(|field| {
                 let value = self.pending_form_value(&field);
-                let input = input("", &value, window, cx);
+                let input = if field.multiline {
+                    inline_text_input("", &value, window, cx)
+                } else {
+                    input("", &value, window, cx)
+                };
                 let field_name = field.name.clone();
                 let subscription = cx.subscribe_in(
                     &input,
