@@ -1,7 +1,7 @@
 use gpui::prelude::FluentBuilder;
 use gpui::{
     Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
-    StatefulInteractiveElement, Styled, Window, canvas, div, img, px, rgb, rgba,
+    StatefulInteractiveElement, Styled, Window, canvas, div, img, px, relative, rgb, rgba,
 };
 use gpui_component::Disableable;
 use gpui_component::button::Button;
@@ -402,17 +402,19 @@ impl EditorView {
                     });
                 }
                 EditCommand::AddText(stamp) if stamp.page_index == page_index => {
-                    let (left, top) = overlay_point(
+                    let (left, top) = text_origin(
                         document_core::PdfPoint::new(stamp.x, stamp.y),
                         geometry,
                         self.zoom,
+                        stamp.size,
                     );
                     page = page.child(
                         div()
                             .absolute()
                             .left(px(left))
-                            .top(px(top - display_text_size(stamp.size, self.zoom)))
+                            .top(px(top))
                             .text_size(px(display_text_size(stamp.size, self.zoom)))
+                            .line_height(relative(1.0))
                             .text_color(rgb(0x0000_0000))
                             .cursor_pointer()
                             .child(stamp.text.clone())
@@ -444,17 +446,18 @@ impl EditorView {
             return page;
         };
         let geometry = self.pages[page_index].metadata.geometry;
-        let (left, top) = overlay_point(inline.point, geometry, self.zoom);
         let zoom = self.zoom;
         let scale = ui_f32(RENDER_SCALE) * zoom;
         let font_size = display_text_size(14.0, zoom);
+        let (left, top) = text_origin(inline.point, geometry, zoom, 14.0);
+        let handle_width = 12.0 * scale;
         page.child(
             div()
                 .absolute()
                 .left(px(left))
-                .top(px(top - 20.0 * scale))
+                .top(px(top))
                 .w(px(160.0 * scale))
-                .h(px(20.0 * scale))
+                .h(px(font_size))
                 .border_1()
                 .border_color(rgb(0x003b_82f6))
                 .occlude()
@@ -463,9 +466,11 @@ impl EditorView {
                 .child(
                     div()
                         .absolute()
-                        .left(px(0.0))
+                        // Move grip sits outside text box, so it does not shift
+                        // editable text away from its PDF anchor.
+                        .left(px(-handle_width))
                         .top(px(0.0))
-                        .w(px(12.0 * scale))
+                        .w(px(handle_width))
                         .h_full()
                         .flex()
                         .items_center()
@@ -488,20 +493,21 @@ impl EditorView {
                 .child(
                     div()
                         .absolute()
-                        .left(px(12.0 * scale))
+                        .left(px(0.0))
                         .top(px(0.0))
                         .right(px(0.0))
                         .h_full()
                         .child(
                             Input::new(&inline.input)
                                 .h_full()
-                                .px(px(2.0 * scale))
+                                .px(px(0.0))
                                 .py(px(0.0))
                                 .appearance(false)
                                 .bordered(false)
                                 .focus_bordered(false)
                                 .text_color(solid(PAGE_TEXT))
-                                .text_size(px(font_size)),
+                                .text_size(px(font_size))
+                                .line_height(relative(1.0)),
                         ),
                 ),
         )
@@ -619,6 +625,18 @@ fn display_text_size(size: f64, zoom: f32) -> f32 {
     ui_f32(size) * ui_f32(RENDER_SCALE) * zoom
 }
 
+/// Top-left screen origin for text whose PDF point is its baseline anchor.
+/// Editable and committed text must share this calculation exactly.
+fn text_origin(
+    point: document_core::PdfPoint,
+    geometry: document_core::PageGeometry,
+    zoom: f32,
+    size: f64,
+) -> (f32, f32) {
+    let (left, baseline) = overlay_point(point, geometry, zoom);
+    (left, baseline - display_text_size(size, zoom))
+}
+
 fn form_text_size(widget_height: f32) -> f32 {
     widget_height * 0.6
 }
@@ -650,12 +668,27 @@ fn color_to_u32(color: (f64, f64, f64)) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{CursorStyle, Tool, cursor_for_tool, display_text_size, form_text_size};
+    use document_core::{PageGeometry, PdfPoint, PdfRect, Rotation};
+
+    use super::{
+        CursorStyle, Tool, cursor_for_tool, display_text_size, form_text_size, text_origin,
+    };
 
     #[test]
     fn text_size_uses_raster_scale_and_zoom() {
         assert!((display_text_size(14.0, 1.0) - 21.0).abs() < f32::EPSILON);
         assert!((display_text_size(14.0, 2.0) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn text_origin_places_top_one_display_font_size_above_pdf_baseline() {
+        let page = PdfRect::new(0.0, 0.0, 200.0, 100.0).unwrap();
+        let geometry = PageGeometry::new(page, page, Rotation::None, 1.0).unwrap();
+
+        let (left, top) = text_origin(PdfPoint::new(20.0, 30.0), geometry, 2.0, 14.0);
+
+        assert!((left - 60.0).abs() < f32::EPSILON);
+        assert!((top - 168.0).abs() < f32::EPSILON);
     }
 
     #[test]
