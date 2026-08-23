@@ -7,6 +7,7 @@ use gpui_component::input::Input;
 use gpui_component::menu::ContextMenuExt;
 use pdf_engine::{EditCommand, FormAction, FormButtonKind, FormFieldKind, ShapeKind};
 
+use crate::actions::OpenDocument;
 use crate::EditorView;
 
 use super::geometry::{RENDER_SCALE, overlay_point, overlay_rect, ui_f32};
@@ -17,18 +18,23 @@ impl EditorView {
     pub(super) fn render_document(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         if self.pages.is_empty() {
             return div()
+                .id("empty-document")
                 .flex()
                 .flex_1()
                 .flex_col()
                 .items_center()
                 .justify_center()
                 .gap_2()
+                .cursor_pointer()
+                .on_click(cx.listener(|view, _, window, cx| {
+                    view.open_picker(&OpenDocument, window, cx);
+                }))
                 .child(div().text_color(tint(TEXT_MUTED)).child("No document open"))
                 .child(
                     div()
                         .text_sm()
                         .text_color(tint(TEXT_FAINT))
-                        .child("Press Cmd+O, or open a PDF from Finder"),
+                        .child("Click here, press Cmd+O, or open a PDF from Finder"),
                 )
                 .into_any_element();
         }
