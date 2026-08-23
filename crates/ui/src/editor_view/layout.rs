@@ -10,8 +10,8 @@ use gpui_component::{Disableable, Icon, Sizable, TitleBar};
 
 use crate::EditorView;
 use crate::actions::{
-    ActualSize, FirstPage, FitPage, FitWidth, LastPage, NextPage, NextSearchResult, OpenDocument,
-    PreviousPage, PreviousSearchResult, Redo, SaveDocument, SaveDocumentAs, Undo, ZoomIn, ZoomOut,
+    ActualSize, NextPage, NextSearchResult, OpenDocument, PreviousPage, PreviousSearchResult, Redo,
+    SaveDocument, SaveDocumentAs, Undo, ZoomIn, ZoomOut,
 };
 use crate::icons::HugeIcon;
 use crate::theme::{
@@ -447,18 +447,6 @@ impl EditorView {
                     .shadow_xl()
                     .text_color(solid(TEXT))
                     .child(
-                        Button::new("first-page")
-                            .label("⇤")
-                            .ghost()
-                            .disabled(at_start)
-                            .when(at_start, gpui::Styled::cursor_not_allowed)
-                            .when(!at_start, gpui::Styled::cursor_pointer)
-                            .tooltip("First page (Cmd+↑)")
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.first_page(&FirstPage, window, cx);
-                            })),
-                    )
-                    .child(
                         Button::new("previous")
                             .icon(HugeIcon::Previous)
                             .ghost()
@@ -514,18 +502,6 @@ impl EditorView {
                                 view.next_page(&NextPage, window, cx);
                             })),
                     )
-                    .child(
-                        Button::new("last-page")
-                            .label("⇥")
-                            .ghost()
-                            .disabled(at_end)
-                            .when(at_end, gpui::Styled::cursor_not_allowed)
-                            .when(!at_end, gpui::Styled::cursor_pointer)
-                            .tooltip("Last page (Cmd+↓)")
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.last_page(&LastPage, window, cx);
-                            })),
-                    )
                     .child(div().h_6().w_px().mx_1().bg(tint(BORDER_STRONG)))
                     .child(
                         Button::new("zoom-out")
@@ -555,26 +531,6 @@ impl EditorView {
                             .tooltip("Zoom in (Cmd+=)")
                             .on_click(cx.listener(|view, _, window, cx| {
                                 view.zoom_in(&ZoomIn, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("fit")
-                            .icon(HugeIcon::Fit)
-                            .ghost()
-                            .cursor_pointer()
-                            .tooltip("Fit page (Cmd+1)")
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.fit_page(&FitPage, window, cx);
-                            })),
-                    )
-                    .child(
-                        Button::new("fit-width")
-                            .icon(HugeIcon::FitWidth)
-                            .ghost()
-                            .cursor_pointer()
-                            .tooltip("Fit width (Cmd+2)")
-                            .on_click(cx.listener(|view, _, window, cx| {
-                                view.fit_width(&FitWidth, window, cx);
                             })),
                     ),
             )
