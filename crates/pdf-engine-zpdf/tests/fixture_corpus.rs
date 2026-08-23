@@ -271,6 +271,24 @@ fn austrian_neufoe2_form_loads_and_round_trips() {
     let fields = document.form_fields().unwrap();
 
     assert_eq!(fields.len(), 41);
+    assert!(
+        fields
+            .iter()
+            .find(|field| field.name == "faxx1")
+            .unwrap()
+            .widgets
+            .is_empty()
+    );
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name == "Checkbox101")
+            .unwrap()
+            .widgets[0]
+            .on_value
+            .as_deref(),
+        Some("1")
+    );
     for page_index in 0..2 {
         assert!(
             document
@@ -324,6 +342,29 @@ fn austrian_neufoe2_form_loads_and_round_trips() {
             .unwrap()
             .value,
         "23.08.2026"
+    );
+
+    let mut document = ZpdfEngine
+        .open(OpenRequest::new(austrian_neufoe2_pdf()))
+        .unwrap();
+    let output = document
+        .export(&[EditCommand::FillForm {
+            name: "Checkbox101".to_owned(),
+            value: "1".to_owned(),
+        }])
+        .unwrap();
+    let fields = ZpdfEngine
+        .open(OpenRequest::new(output))
+        .unwrap()
+        .form_fields()
+        .unwrap();
+    assert_eq!(
+        fields
+            .iter()
+            .find(|field| field.name == "Checkbox101")
+            .unwrap()
+            .value,
+        "1"
     );
 }
 

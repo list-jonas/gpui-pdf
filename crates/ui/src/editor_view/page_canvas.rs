@@ -198,7 +198,11 @@ impl EditorView {
                         .flex()
                         .items_center()
                         .justify_center()
-                        .text_size(px(rect.height * 1.1))
+                        .text_size(px(if checked && button_kind == FormButtonKind::CheckBox {
+                            rect.height * 1.35
+                        } else {
+                            rect.height * 1.1
+                        }))
                         .text_color(solid(PAGE_TEXT))
                         .when(button_kind != FormButtonKind::Push, |this| {
                             this.bg(solid(0x00ff_ffff))
@@ -700,11 +704,11 @@ impl EditorView {
             let Some(on_value) = on_value else {
                 return;
             };
-            let Some((input, current)) = self
+            let Some(current) = self
                 .forms
                 .iter()
                 .find(|item| item.field.name == name)
-                .map(|item| (item.input.clone(), item.value(cx)))
+                .map(|item| item.value(cx))
             else {
                 return;
             };
@@ -717,7 +721,8 @@ impl EditorView {
             } else {
                 "Off".to_owned()
             };
-            input.update(cx, |state, cx| state.set_value(next, window, cx));
+            self.set_form_value(name, &next, window, cx);
+            self.capture_form_edits(cx);
         }
         if let Some(action) = action {
             self.execute_form_action(action, checked, window, cx);

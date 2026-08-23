@@ -159,6 +159,9 @@ impl ZpdfDocument {
                 let Some(dictionary) = self.object_dictionary(*id) else {
                     continue;
                 };
+                if !widget_is_visible(&dictionary) {
+                    continue;
+                }
                 let Ok(raw_rect) = dictionary.get_rect("Rect") else {
                     continue;
                 };
@@ -170,7 +173,7 @@ impl ZpdfDocument {
                 widgets.push(FormWidget {
                     page_index,
                     rect,
-                    visible: dictionary.get_i64("F").unwrap_or(0) & (1 | 2 | 32) == 0,
+                    visible: true,
                     hint: dictionary
                         .get("TU")
                         .cloned()
@@ -265,13 +268,33 @@ fn additional_action_script(
 }
 
 fn button_on_value(file: &zpdf::PdfFile, widget: &zpdf::PdfDict) -> Option<String> {
-    let appearances = resolve_dictionary(file, widget.get("AP")?)?;
-    let normal = resolve_dictionary(file, appearances.get("N")?)?;
+    let appearances = widget
+        .get("AP")
+        .and_then(|object| resolve_dictionary(file, object));
+    let normal = appearances
+        .as_ref()
+        .and_then(|appearances| appearances.get("N"))
+        .and_then(|object| resolve_dictionary(file, object));
     normal
-        .0
-        .keys()
-        .find(|name| name.as_str() != "Off")
-        .map(|name| name.as_str().to_owned())
+        .as_ref()
+        .and_then(|normal| {
+            normal
+                .0
+                .keys()
+                .find(|name| name.as_str() != "Off")
+                .map(|name| name.as_str().to_owned())
+        })
+        .or_else(|| {
+            widget
+                .get_name("AS")
+                .ok()
+                .filter(|name| *name != "Off")
+                .map(std::borrow::ToOwned::to_owned)
+        })
+}
+
+fn widget_is_visible(widget: &zpdf::PdfDict) -> bool {
+    widget.get_i64("F").unwrap_or(0) & (1 | 2 | 32) == 0
 }
 
 fn button_action(file: &zpdf::PdfFile, dictionary: &zpdf::PdfDict) -> Option<FormAction> {
