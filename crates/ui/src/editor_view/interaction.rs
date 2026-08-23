@@ -31,7 +31,8 @@ const ZOOM_STOPS: [f32; 12] = [
 const MIN_REGION: f64 = 4.0;
 /// A press/release pair that moved less than this is a click, not a drag.
 /// Clicking must never select the nearest text run; only dragging selects.
-const MIN_DRAG_DISTANCE: f64 = 1.0;
+/// Generous enough to absorb the jitter every physical mouse click has.
+const MIN_DRAG_DISTANCE: f64 = 4.0;
 /// How far (PDF points) a pointer may sit from a text run and still select it.
 const SELECTION_TOLERANCE: f64 = 24.0;
 /// Pixels moved by a single arrow-key scroll.
@@ -679,6 +680,16 @@ impl EditorView {
         } else if self.tool == Tool::Note {
             self.start_inline_note(page_index, point, "", window, cx);
         } else {
+            // A double click on a word selects that whole word instead of
+            // starting a drag selection.
+            if event.click_count == 2
+                && matches!(self.tool, Tool::Select | Tool::Edit)
+                && self.select_word_at(page_index, point)
+            {
+                self.drag = None;
+                cx.notify();
+                return;
+            }
             self.drag = Some(DragState::Region {
                 page_index,
                 start: point,
@@ -1001,6 +1012,7 @@ impl EditorView {
                 self.tool,
                 Tool::Select | Tool::Highlight | Tool::Underline | Tool::Strikeout
             )
+            && start.distance_to(current) >= MIN_DRAG_DISTANCE
         {
             self.select_text_range(*page_index, *start, *current_page, *current);
         }
@@ -1179,6 +1191,42 @@ impl EditorView {
             return;
         };
         self.set_selection(text_selection(&self.pages, anchor_edge, head_edge));
+    }
+
+    /// Selects the whole word under the pointer for a double click. Returns
+    /// false when no text sits under (or near) the pointer.
+    #[allow(clippy::cast_precision_loss, clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn select_word_at(&mut self, page_index: usize, point: document_core::PdfPoint) -> bool {
+        let Some(page) = self.pages.get(page_index) else {
+            return false;
+        };
+        let Some(fragment_index) = nearest_fragment(&page.fragments, point) else {
+            return false;
+        };
+        let fragment = &page.fragments[fragment_index];
+        let char_count = fragment.text.chars().count();
+        let width_per_char = fragment.rect.width() / char_count as f64;
+        let offset = ((point.x - fragment.rect.x_min) / width_per_char).floor();
+        let index = (offset.max(0.0) as usize).min(char_count - 1);
+
+        let is_word_char = |c: char| !c.is_whitespace();
+        let chars: Vec<char> = fragment.text.chars().collect();
+        if !is_word_char(chars[index]) {
+            return false;
+        }
+        let mut start = index;
+        while start > 0 && is_word_char(chars[start - 1]) {
+            start -= 1;
+        }
+        let mut end = index;
+        while end + 1 < chars.len() && is_word_char(chars[end + 1]) {
+            end += 1;
+        }
+        let char_width = |i: usize| fragment.rect.x_min + i as f64 * width_per_char;
+        let word_start = document_core::PdfPoint::new(char_width(start), point.y);
+        let word_end = document_core::PdfPoint::new(char_width(end + 1), point.y);
+        self.select_text_range(page_index, word_start, page_index, word_end);
+        true
     }
 
     /// Resolves a pointer position to a text run. `edge_of_page` snaps to the
