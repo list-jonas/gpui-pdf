@@ -280,6 +280,7 @@ impl EditorView {
                         self.zoom,
                         field_index,
                         widget_index,
+                        page_index,
                         widget.hint.as_deref(),
                         cx,
                     );
@@ -315,6 +316,9 @@ impl EditorView {
                 }
                 page = page.child(overlay);
             }
+        }
+        if let Some(menu) = self.choice_menu.as_ref() {
+            page = page.child(super::form_choice::render_choice_menu(menu, view));
         }
         page
     }

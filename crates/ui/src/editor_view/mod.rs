@@ -36,7 +36,8 @@ use self::document_io::file_name;
 use self::document_page::DocumentPage;
 use self::history::EditHistory;
 use self::model::{
-    DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, SelectedRun, Tool,
+    ChoiceMenuState, DragState, InlineNote, InlineText, PanelVisibility, SearchMatch, SelectedRun,
+    Tool,
 };
 use self::selection_paint::SelectionOverlays;
 
@@ -87,6 +88,7 @@ pub struct EditorView {
     focus_handle: FocusHandle,
     scroll: ScrollHandle,
     forms: Vec<FieldInput>,
+    choice_menu: Option<ChoiceMenuState>,
     history: EditHistory,
     tool: Tool,
     zoom: f32,
@@ -197,6 +199,7 @@ impl EditorView {
             focus_handle,
             scroll: ScrollHandle::new(),
             forms: Vec::new(),
+            choice_menu: None,
             history: EditHistory::default(),
             tool: Tool::Select,
             zoom: 1.0,

@@ -2,7 +2,7 @@ use gpui::{
     App, ClipboardItem, Context, Focusable, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     PinchEvent, ScrollWheelEvent, Window, point, px,
 };
-use pdf_engine::{EditCommand, TextStamp};
+use pdf_engine::{EditCommand, FormFieldKind, TextStamp};
 
 use crate::actions::{
     ActualSize, AddTextTool, Cancel, CopySelection, DeleteSelection, DocumentProperties, EditTool,
@@ -16,9 +16,9 @@ use crate::editor_view::inline_text_input;
 use super::EditorView;
 use super::Severity;
 use super::document_page::DocumentPage;
-use super::geometry::page_point;
+use super::geometry::{overlay_rect, page_point};
 use super::gestures::{AnchorContext, anchored_document_offset, pinch_zoom};
-use super::model::{DragState, InlineNote, InlineText, SelectedRun, Tool};
+use super::model::{ChoiceMenuState, DragState, InlineNote, InlineText, SelectedRun, Tool};
 use super::schedule::{self, PageState, Viewport};
 
 pub(super) const MIN_ZOOM: f32 = 0.25;
@@ -670,6 +670,9 @@ impl EditorView {
         let Some(point) = self.pdf_point(page_index, event.position) else {
             return;
         };
+        if self.handle_choice_click(page_index, point, event.position, window, cx) {
+            return;
+        }
         if matches!(self.tool, Tool::AddText | Tool::Signature) {
             let placeholder = if self.tool == Tool::Signature {
                 "Type signature"
@@ -698,6 +701,85 @@ impl EditorView {
             });
         }
         cx.notify();
+    }
+
+    fn handle_choice_click(
+        &mut self,
+        page_index: usize,
+        point: document_core::PdfPoint,
+        position: gpui::Point<gpui::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if let Some(menu) = self.choice_menu.clone() {
+            if menu.page_index == page_index {
+                let bounds = self.pages[page_index].bounds.get();
+                let local_x = f32::from(position.x) - f32::from(bounds.origin.x);
+                let local_y = f32::from(position.y) - f32::from(bounds.origin.y);
+                let menu_top = menu.rect.top + menu.rect.height + 2.0;
+                let menu_bottom =
+                    menu_top + super::form_choice::choice_menu_height(menu.options.len());
+                if local_x >= menu.rect.left
+                    && local_x <= menu.rect.left + menu.rect.width.max(180.0)
+                    && local_y >= menu_top
+                    && local_y < menu_bottom
+                {
+                    let option = menu.options.iter().enumerate().find(|(index, _)| {
+                        let row_top =
+                            menu_top + f32::from(u16::try_from(*index).unwrap_or(u16::MAX)) * 24.0;
+                        local_y >= row_top && local_y < row_top + 24.0
+                    });
+                    if let Some((_, (export, _))) = option {
+                        let value = super::form_choice::choice_value(
+                            &menu.current,
+                            export,
+                            menu.multi_select,
+                        );
+                        self.set_form_value(&menu.field_name, &value, window, cx);
+                        self.capture_form_edits(cx);
+                    }
+                    self.choice_menu = None;
+                    cx.notify();
+                    return true;
+                }
+                self.choice_menu = None;
+                cx.notify();
+                return true;
+            }
+            self.choice_menu = None;
+        }
+
+        let geometry = self.pages[page_index].metadata.geometry;
+        let choice = self.forms.iter().find_map(|item| {
+            if item.field.kind != FormFieldKind::Choice || item.field.options.is_empty() {
+                return None;
+            }
+            item.field
+                .widgets
+                .iter()
+                .find(|widget| {
+                    widget.page_index == page_index
+                        && widget.visible
+                        && point.x >= widget.rect.x_min
+                        && point.x <= widget.rect.x_max
+                        && point.y >= widget.rect.y_min
+                        && point.y <= widget.rect.y_max
+                })
+                .map(|widget| ChoiceMenuState {
+                    field_name: item.field.name.clone(),
+                    page_index,
+                    rect: overlay_rect(widget.rect, geometry, self.zoom),
+                    options: item.field.options.clone(),
+                    current: item.value(cx),
+                    multi_select: item.field.multi_select,
+                })
+        });
+        if let Some(choice) = choice {
+            self.choice_menu = Some(choice);
+            cx.notify();
+            return true;
+        }
+        false
     }
 
     /// Opens a focused on-page text draft, committing any draft already open.

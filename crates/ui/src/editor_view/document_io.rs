@@ -50,6 +50,7 @@ impl EditorView {
         self.busy = true;
         self.detail = Some(path.display().to_string().into());
         self.history.clear();
+        self.choice_menu = None;
         let _ = self.requests.try_send(EditorRequest::Open(path));
     }
 

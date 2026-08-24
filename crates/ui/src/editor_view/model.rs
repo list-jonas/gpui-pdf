@@ -138,6 +138,16 @@ pub struct OverlayRect {
     pub height: f32,
 }
 
+#[derive(Clone)]
+pub struct ChoiceMenuState {
+    pub field_name: String,
+    pub page_index: usize,
+    pub rect: OverlayRect,
+    pub options: Vec<(String, String)>,
+    pub current: String,
+    pub multi_select: bool,
+}
+
 /// Which chrome panels are currently shown.
 #[derive(Clone, Copy)]
 pub struct PanelVisibility {
