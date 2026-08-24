@@ -40,6 +40,7 @@ fn main() {
         for widget in &field.widgets {
             let action = match &widget.action {
                 Some(FormAction::SetToday { .. }) => " SetToday",
+                Some(FormAction::OpenUrl { .. }) => " OpenUrl",
                 Some(FormAction::ResetForm) => " ResetForm",
                 Some(FormAction::SetButtonValue { .. }) => " SetButtonValue",
                 None => "",

@@ -20,6 +20,9 @@ pub enum FormAction {
         field_name: String,
         format: String,
     },
+    OpenUrl {
+        url: String,
+    },
     ResetForm,
     SetButtonValue {
         field_name: String,

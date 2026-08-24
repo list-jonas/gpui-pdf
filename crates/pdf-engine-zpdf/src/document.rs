@@ -312,6 +312,10 @@ fn button_action(file: &zpdf::PdfFile, dictionary: &zpdf::PdfDict) -> Option<For
 }
 
 fn parse_javascript_button_action(script: &str) -> Option<FormAction> {
+    if let Some(url) = quoted_after(script, "app.launchURL(") {
+        return Some(FormAction::OpenUrl { url });
+    }
+
     if script.contains("util.printd") && script.contains("new Date") {
         let field_name = quoted_after(script, "getField(")?;
         let format = quoted_after(script, "util.printd(")?;

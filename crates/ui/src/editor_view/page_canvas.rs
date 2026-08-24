@@ -754,6 +754,9 @@ impl EditorView {
                     );
                 }
             }
+            FormAction::OpenUrl { url } => {
+                cx.open_url(url);
+            }
             FormAction::ResetForm => {
                 for item in &self.forms {
                     item.input.update(cx, |state, cx| {
