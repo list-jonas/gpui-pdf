@@ -297,27 +297,28 @@ impl EditorView {
                 // Keep field text proportional to its widget at every zoom.
                 // A fixed min/max would make text drift relative to the PDF.
                 let font_size = form_text_size(rect.height);
+                let field_background = if disabled {
+                    solid(0x00f3_f4f6)
+                } else {
+                    solid(0x00e5_efff)
+                };
+                let input = Input::new(&item.input)
+                    .disabled(disabled)
+                    .size_full()
+                    .appearance(false)
+                    .bordered(false)
+                    .focus_bordered(false)
+                    .px(px(2.0))
+                    .py(px(0.0))
+                    .font_family("Helvetica")
+                    .text_color(solid(PAGE_TEXT))
+                    .text_size(px(font_size));
                 let mut overlay = positioned(rect)
                     .id(("form-input", field_index * 1000 + widget_index))
                     .block_mouse_except_scroll()
                     .rounded_sm()
-                    .bg(if disabled {
-                        rgba(0x9ca3_ad1a)
-                    } else {
-                        rgba(0x4e9c_ff2e)
-                    })
-                    .child(
-                        Input::new(&item.input)
-                            .disabled(disabled)
-                            .size_full()
-                            .appearance(false)
-                            .bordered(false)
-                            .focus_bordered(false)
-                            .px(px(2.0))
-                            .py(px(0.0))
-                            .text_color(solid(PAGE_TEXT))
-                            .text_size(px(font_size)),
-                    );
+                    .bg(field_background)
+                    .child(input);
                 if let Some(hint) = widget.hint.clone() {
                     overlay = overlay
                         .tooltip(move |window, cx| Tooltip::new(hint.clone()).build(window, cx));
