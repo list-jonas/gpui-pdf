@@ -299,6 +299,11 @@ impl EditorView {
                 let font_size = form_text_size(rect.height);
                 let letter_spacing =
                     form_letter_spacing(item.field.comb, item.field.max_len, rect.width, font_size);
+                let leading_padding = if item.field.comb {
+                    letter_spacing * 0.5
+                } else {
+                    0.0
+                };
                 let field_background = if disabled {
                     solid(0x00f3_f4f6)
                 } else {
@@ -311,6 +316,7 @@ impl EditorView {
                     .bordered(false)
                     .focus_bordered(false)
                     .px(px(2.0))
+                    .pl(px(2.0 + leading_padding))
                     .py(px(0.0))
                     .font_family("Helvetica")
                     .letter_spacing(px(letter_spacing))
