@@ -182,7 +182,7 @@ impl TextElement {
                     bounds.size.width - line_number_width - RIGHT_MARGIN - cursor_pos.x
                 } else if scroll_offset.x + cursor_pos.x < px(0.) {
                     // cursor is out of left
-                    scroll_offset.x - cursor_pos.x
+                    -cursor_pos.x
                 } else {
                     scroll_offset.x
                 };
