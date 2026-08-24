@@ -73,6 +73,10 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/hugeicons/close.svg"),
     ),
     (
+        "hugeicons/checkbox-x.svg",
+        include_bytes!("../assets/hugeicons/checkbox-x.svg"),
+    ),
+    (
         "hugeicons/fit-width.svg",
         include_bytes!("../assets/hugeicons/fit-width.svg"),
     ),
@@ -160,6 +164,7 @@ pub(crate) enum HugeIcon {
     Redo,
     Save,
     Close,
+    CheckboxX,
     Sidebar,
     Panel,
 }
@@ -189,6 +194,7 @@ impl IconNamed for HugeIcon {
             Self::Redo => "hugeicons/redo.svg",
             Self::Save => "hugeicons/save.svg",
             Self::Close => "hugeicons/close.svg",
+            Self::CheckboxX => "hugeicons/checkbox-x.svg",
             Self::Sidebar => "hugeicons/sidebar.svg",
             Self::Panel => "hugeicons/panel.svg",
         }

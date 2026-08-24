@@ -3,6 +3,7 @@ use gpui::{
     Context, CursorStyle, InteractiveElement, IntoElement, MouseButton, ParentElement,
     StatefulInteractiveElement, Styled, Window, canvas, div, img, px, relative, rgb, rgba,
 };
+use gpui_component::Icon;
 use gpui_component::input::Input;
 use gpui_component::menu::ContextMenuExt;
 use gpui_component::tooltip::Tooltip;
@@ -10,6 +11,7 @@ use pdf_engine::{EditCommand, FormAction, FormButtonKind, FormFieldKind, ShapeKi
 
 use crate::EditorView;
 use crate::actions::OpenDocument;
+use crate::icons::HugeIcon;
 
 use super::geometry::{RENDER_SCALE, overlay_point, overlay_rect, ui_f32};
 use super::model::{DragState, OverlayRect, Tool};
@@ -212,7 +214,11 @@ impl EditorView {
                             gpui::Styled::rounded_full,
                         )
                         .when(checked && button_kind == FormButtonKind::CheckBox, |this| {
-                            this.child("×")
+                            this.child(
+                                Icon::new(HugeIcon::CheckboxX)
+                                    .size(px(rect.height * 1.35))
+                                    .text_color(solid(PAGE_TEXT)),
+                            )
                         })
                         .when(checked && button_kind == FormButtonKind::Radio, |this| {
                             this.child("●")
