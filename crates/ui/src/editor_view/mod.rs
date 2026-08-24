@@ -248,7 +248,13 @@ impl EditorView {
                 let bytes = u64::from(rendered.width) * u64::from(rendered.height) * 4;
                 if let Some(target) = self.pages.get_mut(page_index) {
                     let was_loaded = target.image.is_some();
-                    target.set_rendered_image(render_image(rendered), scale, preview, bytes);
+                    target.set_rendered_image(
+                        render_image(rendered),
+                        target.metadata.geometry,
+                        scale,
+                        preview,
+                        bytes,
+                    );
                     if !was_loaded && target.image.is_some() {
                         self.loaded_pages += 1;
                     }

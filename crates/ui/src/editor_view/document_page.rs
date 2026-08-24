@@ -5,7 +5,7 @@ use std::sync::Arc;
 use gpui::{Bounds, Pixels, RenderImage, SharedString};
 use pdf_engine::{PageMetadata, TextFragment};
 
-use super::geometry::page_raster_size;
+use super::geometry::{delivered_render_scale, page_raster_size};
 
 pub struct DocumentPage {
     pub metadata: PageMetadata,
@@ -58,6 +58,7 @@ impl DocumentPage {
     pub fn set_rendered_image(
         &mut self,
         image: Option<Arc<RenderImage>>,
+        geometry: document_core::PageGeometry,
         scale: f32,
         preview: bool,
         bytes: u64,
@@ -68,6 +69,15 @@ impl DocumentPage {
         if self.image.is_some() && scale < self.render_scale {
             return;
         }
+        // A backend that clamps huge rasters delivers a bitmap smaller than
+        // the requested scale. Record what actually arrived so the canvas
+        // paints the raster at its real scale instead of stretching it and
+        // cutting off whatever no longer fits the page box.
+        let scale = image.as_ref().map_or(scale, |image| {
+            #[allow(clippy::cast_sign_loss)] // device pixel counts are non-negative
+            let width = image.size(0).width.0 as u32;
+            delivered_render_scale(geometry, scale, width)
+        });
         self.image = image;
         self.render_scale = scale;
         self.preview = preview;

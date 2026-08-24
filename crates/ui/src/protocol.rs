@@ -46,6 +46,8 @@ pub enum EditorUpdate {
     PageRendered {
         token: u64,
         page_index: usize,
+        /// Scale the raster was requested at. May differ from what was painted
+        /// when a backend clamps huge rasters to a pixel budget.
         scale: f32,
         kind: PageKind,
         rendered: RenderedPage,
