@@ -183,9 +183,6 @@ impl EditorView {
                     let action = widget.action.clone();
                     let button_kind = item.field.button_kind.unwrap_or(FormButtonKind::CheckBox);
                     let read_only = item.field.read_only;
-                    if button_kind == FormButtonKind::Push && action.is_none() {
-                        continue;
-                    }
                     let checked = on_value
                         .as_deref()
                         .is_some_and(|on_value| item.value(cx) == on_value);
@@ -223,14 +220,18 @@ impl EditorView {
                         .when(!read_only, gpui::Styled::cursor_pointer)
                         .when(!read_only, |this| {
                             this.on_click(cx.listener(move |view, _, window, cx| {
-                                view.activate_form_button(
-                                    &name,
-                                    on_value.as_deref(),
-                                    button_kind,
-                                    action.as_ref(),
-                                    window,
-                                    cx,
-                                );
+                                if button_kind == FormButtonKind::Push && action.is_none() {
+                                    cx.stop_propagation();
+                                } else {
+                                    view.activate_form_button(
+                                        &name,
+                                        on_value.as_deref(),
+                                        button_kind,
+                                        action.as_ref(),
+                                        window,
+                                        cx,
+                                    );
+                                }
                             }))
                         });
                     if let Some(hint) = widget.hint.clone() {
