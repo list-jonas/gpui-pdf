@@ -44,7 +44,7 @@ pub(super) fn add_form_choice_overlay(
     let open_view = view.clone();
     let mut overlay = positioned(rect)
         .id(("form-choice", field_index * 1000 + widget_index))
-        .occlude()
+        .block_mouse_except_scroll()
         .flex()
         .items_center()
         .justify_between()

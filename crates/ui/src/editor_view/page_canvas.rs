@@ -56,8 +56,9 @@ impl EditorView {
             .p_8()
             .overflow_scroll()
             .track_scroll(&self.scroll)
+            .capture_scroll_wheel(cx.listener(Self::document_scroll_wheel_capture))
             .on_scroll_wheel(cx.listener(Self::document_scroll_wheel))
-            .on_pinch(cx.listener(Self::document_pinch));
+            .capture_pinch(cx.listener(Self::document_pinch));
         scroll.style().allow_concurrent_scroll = Some(true);
         for page_index in 0..self.pages.len() {
             scroll = scroll.child(
@@ -191,7 +192,7 @@ impl EditorView {
                             "form-button",
                             field_index.saturating_mul(1000) + widget_index,
                         ))
-                        .occlude()
+                        .block_mouse_except_scroll()
                         .flex()
                         .items_center()
                         .justify_center()
@@ -292,7 +293,7 @@ impl EditorView {
                 let font_size = form_text_size(rect.height);
                 let mut overlay = positioned(rect)
                     .id(("form-input", field_index * 1000 + widget_index))
-                    .occlude()
+                    .block_mouse_except_scroll()
                     .rounded_sm()
                     .bg(if disabled {
                         rgba(0x9ca3_ad1a)
@@ -573,7 +574,7 @@ impl EditorView {
                 .h(px(font_size))
                 .border_1()
                 .border_color(rgb(0x003b_82f6))
-                .occlude()
+                .block_mouse_except_scroll()
                 .on_mouse_move(cx.listener(Self::inline_text_mouse_move))
                 .on_mouse_up(MouseButton::Left, cx.listener(Self::inline_text_mouse_up))
                 .child(
@@ -654,7 +655,7 @@ impl EditorView {
                 .border_1()
                 .border_color(rgb(0x00f5_b942))
                 .bg(rgb(0x00ff_f8dc))
-                .occlude()
+                .block_mouse_except_scroll()
                 .on_mouse_move(cx.listener(Self::inline_note_mouse_move))
                 .on_mouse_up(MouseButton::Left, cx.listener(Self::inline_note_mouse_up))
                 .child(

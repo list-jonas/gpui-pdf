@@ -625,6 +625,23 @@ impl EditorView {
         cx.notify();
     }
 
+    pub(super) fn document_scroll_wheel_capture(
+        &mut self,
+        event: &ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !event.modifiers.platform {
+            cx.propagate();
+            return;
+        }
+
+        let delta = event.delta.pixel_delta(window.line_height()).y;
+        let factor = 1.0 + f32::from(delta) * 0.01;
+        self.set_zoom_anchored(self.zoom * factor.clamp(0.5, 1.5), Some(event.position), cx);
+        cx.stop_propagation();
+    }
+
     /// Reverses the pan the scroll container applied for `event`.
     fn undo_scroll(&mut self, event: &ScrollWheelEvent, window: &mut Window) {
         let delta = event.delta.pixel_delta(window.line_height());
@@ -640,6 +657,7 @@ impl EditorView {
     ) {
         let new_zoom = pinch_zoom(self.zoom, event.delta);
         self.set_zoom_anchored(new_zoom, Some(event.position), cx);
+        cx.stop_propagation();
     }
 
     pub(super) fn page_mouse_down(

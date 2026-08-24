@@ -321,12 +321,40 @@ impl Interactivity {
             }));
     }
 
+    /// Bind the given callback to scroll wheel events during the capture phase.
+    pub fn capture_scroll_wheel(
+        &mut self,
+        listener: impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static,
+    ) {
+        self.scroll_wheel_listeners
+            .push(Box::new(move |event, phase, hitbox, window, cx| {
+                if phase == DispatchPhase::Capture && hitbox.should_handle_scroll(window) {
+                    (listener)(event, window, cx);
+                }
+            }));
+    }
+
     /// Bind the given callback to pinch gesture events during the bubble phase.
     pub fn on_pinch(&mut self, listener: impl Fn(&PinchEvent, &mut Window, &mut App) + 'static) {
         self.pinch_listeners
             .push(Box::new(move |event, phase, hitbox, window, cx| {
                 if phase == DispatchPhase::Bubble && hitbox.is_hovered(window) {
                     (listener)(event, window, cx);
+                }
+            }));
+    }
+
+    /// Bind the given callback to pinch gesture events during the capture phase.
+    pub fn capture_pinch(
+        &mut self,
+        listener: impl Fn(&PinchEvent, &mut Window, &mut App) + 'static,
+    ) {
+        self.pinch_listeners
+            .push(Box::new(move |event, phase, hitbox, window, cx| {
+                if phase == DispatchPhase::Capture && hitbox.should_handle_scroll(window) {
+                    (listener)(event, window, cx);
+                } else if phase == DispatchPhase::Capture {
+                    cx.propagate();
                 }
             }));
     }
@@ -845,12 +873,30 @@ pub trait InteractiveElement: Sized {
         self
     }
 
+    /// Bind the given callback to scroll wheel events during the capture phase.
+    fn capture_scroll_wheel(
+        mut self,
+        listener: impl Fn(&ScrollWheelEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().capture_scroll_wheel(listener);
+        self
+    }
+
     /// Bind the given callback to pinch gesture events during the bubble phase.
     fn on_pinch(
         mut self,
         listener: impl Fn(&PinchEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.interactivity().on_pinch(listener);
+        self
+    }
+
+    /// Bind the given callback to pinch gesture events during the capture phase.
+    fn capture_pinch(
+        mut self,
+        listener: impl Fn(&PinchEvent, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.interactivity().capture_pinch(listener);
         self
     }
 
