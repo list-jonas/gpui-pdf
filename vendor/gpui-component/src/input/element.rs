@@ -1005,7 +1005,7 @@ impl Element for TextElement {
             background_color: None,
             underline: None,
             strikethrough: None,
-            letter_spacing: px(0.),
+            letter_spacing: text_style.letter_spacing,
         };
         let marked_run = TextRun {
             len: 0,
@@ -1018,7 +1018,7 @@ impl Element for TextElement {
                 wavy: false,
             }),
             strikethrough: None,
-            letter_spacing: px(0.),
+            letter_spacing: text_style.letter_spacing,
         };
 
         let runs = if !is_empty {
@@ -1099,7 +1099,7 @@ impl Element for TextElement {
                         background_color: None,
                         underline: None,
                         strikethrough: None,
-                        letter_spacing: px(0.),
+                        letter_spacing: text_style.letter_spacing,
                     }],
                     wrap_width,
                 )
