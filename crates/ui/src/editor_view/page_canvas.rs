@@ -297,6 +297,8 @@ impl EditorView {
                 // Keep field text proportional to its widget at every zoom.
                 // A fixed min/max would make text drift relative to the PDF.
                 let font_size = form_text_size(rect.height);
+                let letter_spacing =
+                    form_letter_spacing(item.field.comb, item.field.max_len, rect.width, font_size);
                 let field_background = if disabled {
                     solid(0x00f3_f4f6)
                 } else {
@@ -311,7 +313,7 @@ impl EditorView {
                     .px(px(2.0))
                     .py(px(0.0))
                     .font_family("Helvetica")
-                    .letter_spacing(px((font_size * 0.05).max(0.25)))
+                    .letter_spacing(px(letter_spacing))
                     .text_color(solid(PAGE_TEXT))
                     .text_size(px(font_size));
                 let mut overlay = positioned(rect)
@@ -857,6 +859,17 @@ pub(super) fn form_text_size(widget_height: f32) -> f32 {
     widget_height * 0.6
 }
 
+fn form_letter_spacing(comb: bool, max_len: Option<usize>, width: f32, font_size: f32) -> f32 {
+    if comb && let Some(max_len) = max_len.filter(|max_len| *max_len > 1) {
+        #[allow(clippy::cast_precision_loss)]
+        let cell_count = max_len as f32;
+        let cell_width = width / cell_count;
+        return (cell_width - font_size * 0.6).max(0.0);
+    }
+
+    (font_size * 0.1).max(0.75)
+}
+
 fn format_today(format: &str) -> String {
     use chrono::Local;
     let chrono_format = match format {
@@ -897,7 +910,8 @@ mod tests {
     use document_core::{PageGeometry, PdfPoint, PdfRect, Rotation};
 
     use super::{
-        CursorStyle, Tool, cursor_for_tool, display_text_size, form_text_size, text_origin,
+        CursorStyle, Tool, cursor_for_tool, display_text_size, form_letter_spacing, form_text_size,
+        text_origin,
     };
 
     #[test]
@@ -922,6 +936,12 @@ mod tests {
         assert!((form_text_size(4.5) - 2.7).abs() < 0.001);
         assert!((form_text_size(45.0) - 27.0).abs() < 0.001);
         assert!((form_text_size(360.0) - 216.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn comb_form_spacing_tracks_cell_width() {
+        assert!((form_letter_spacing(true, Some(10), 850.0, 60.0) - 49.0).abs() < 0.001);
+        assert!((form_letter_spacing(false, None, 850.0, 60.0) - 6.0).abs() < 0.001);
     }
 
     #[test]
