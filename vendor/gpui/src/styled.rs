@@ -620,6 +620,14 @@ pub trait Styled: Sized {
         self
     }
 
+    /// Sets the extra horizontal spacing between characters.
+    fn letter_spacing(mut self, spacing: impl Into<gpui::Pixels>) -> Self {
+        self.text_style()
+            .get_or_insert_with(Default::default)
+            .letter_spacing = Some(spacing.into());
+        self
+    }
+
     /// Sets the font of this element and its children.
     fn font(mut self, font: Font) -> Self {
         let Font {

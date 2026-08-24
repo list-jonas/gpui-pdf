@@ -218,6 +218,7 @@ impl LineWrapper {
                 &[FontRun {
                     len: buffer.len(),
                     font_id: self.font_id,
+                    letter_spacing: px(0.),
                 }],
             )
             .width
@@ -344,6 +345,7 @@ mod tests {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: px(0.),
             })
             .collect()
     }
@@ -694,6 +696,7 @@ mod tests {
                 underline: Default::default(),
                 strikethrough: None,
                 background_color: None,
+                letter_spacing: px(0.),
             };
             let bold = TextRun {
                 len: 0,
@@ -702,6 +705,7 @@ mod tests {
                 underline: Default::default(),
                 strikethrough: None,
                 background_color: None,
+                letter_spacing: px(0.),
             };
 
             let text = "aa bbb cccc ddddd eeee".into();

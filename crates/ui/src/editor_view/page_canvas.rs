@@ -311,6 +311,7 @@ impl EditorView {
                     .px(px(2.0))
                     .py(px(0.0))
                     .font_family("Helvetica")
+                    .letter_spacing(px((font_size * 0.05).max(0.25)))
                     .text_color(solid(PAGE_TEXT))
                     .text_size(px(font_size));
                 let mut overlay = positioned(rect)

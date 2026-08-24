@@ -464,6 +464,7 @@ impl WindowTextSystem {
                     font_runs.push(FontRun {
                         len: run_len_within_line,
                         font_id,
+                        letter_spacing: run.letter_spacing,
                     });
                 }
 
@@ -560,6 +561,7 @@ impl WindowTextSystem {
 
             if let Some(font_run) = font_runs.last_mut()
                 && Some(font_run.font_id) == last_font
+                && font_run.letter_spacing == run.letter_spacing
                 && !decoration_changed
             {
                 font_run.len += run.len;
@@ -569,6 +571,7 @@ impl WindowTextSystem {
                 font_runs.push(FontRun {
                     len: run.len,
                     font_id,
+                    letter_spacing: run.letter_spacing,
                 });
             }
         }
@@ -743,6 +746,8 @@ pub struct TextRun {
     pub underline: Option<UnderlineStyle>,
     /// The strikethrough style (if any)
     pub strikethrough: Option<StrikethroughStyle>,
+    /// The extra horizontal spacing between characters.
+    pub letter_spacing: Pixels,
 }
 
 #[cfg(all(target_os = "macos", test))]

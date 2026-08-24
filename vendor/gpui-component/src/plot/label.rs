@@ -93,6 +93,7 @@ impl PlotLabel {
                 background_color: None,
                 underline: None,
                 strikethrough: None,
+                letter_spacing: px(0.),
             };
 
             if let Ok(text) =

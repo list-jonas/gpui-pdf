@@ -577,6 +577,8 @@ impl LineLayoutCache {
                 }
             }
 
+            apply_letter_spacing(&mut layout, text.as_ref(), runs);
+
             let key = Arc::new(CacheKey {
                 text,
                 font_size,
@@ -597,6 +599,44 @@ impl LineLayoutCache {
 pub struct FontRun {
     pub(crate) len: usize,
     pub(crate) font_id: FontId,
+    pub(crate) letter_spacing: Pixels,
+}
+
+fn apply_letter_spacing(layout: &mut LineLayout, text: &str, runs: &[FontRun]) {
+    if text.is_empty() || runs.iter().all(|run| run.letter_spacing == px(0.)) {
+        return;
+    }
+
+    let mut spacing_by_byte = vec![px(0.); text.len()];
+    let mut run_start = 0;
+    for run in runs {
+        let run_end = (run_start + run.len).min(text.len());
+        for spacing in &mut spacing_by_byte[run_start..run_end] {
+            *spacing = run.letter_spacing;
+        }
+        run_start = run_end;
+        if run_start == text.len() {
+            break;
+        }
+    }
+
+    let mut extra_before = vec![px(0.); text.len() + 1];
+    let mut extra = px(0.);
+    for (byte_index, character) in text.char_indices() {
+        extra_before[byte_index] = extra;
+        if byte_index + character.len_utf8() < text.len() {
+            extra += spacing_by_byte[byte_index];
+        }
+    }
+
+    for run in &mut layout.runs {
+        for glyph in &mut run.glyphs {
+            if let Some(extra_before_glyph) = extra_before.get(glyph.index) {
+                glyph.position.x += *extra_before_glyph;
+            }
+        }
+    }
+    layout.width += extra;
 }
 
 trait AsCacheKeyRef {
